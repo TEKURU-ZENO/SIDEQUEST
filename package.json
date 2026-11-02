@@ -1,0 +1,24 @@
+{
+  "name": "sidequest",
+  "private": true,
+  "packageManager": "pnpm@11.25.0",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint && pnpm boundaries",
+    "boundaries": "node scripts/check-boundaries.mjs",
+    "typecheck": "turbo run typecheck",
+    "capture:prototype": "node scripts/capture-prototype.mjs",
+    "format": "prettier --write .",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "prettier": "^3.6.2",
+    "playwright": "^1.64.1",
+    "turbo": "^2.5.8",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

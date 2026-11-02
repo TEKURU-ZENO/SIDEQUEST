@@ -1,0 +1,18 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/contracts" },
+    { "path": "./packages/domain" },
+    { "path": "./packages/application" },
+    { "path": "./packages/config" },
+    { "path": "./packages/twitch" },
+    { "path": "./packages/intelligence" },
+    { "path": "./packages/persistence" },
+    { "path": "./packages/ui" },
+    { "path": "./packages/observability" },
+    { "path": "./packages/testing" },
+    { "path": "./apps/api" },
+    { "path": "./apps/dashboard" },
+    { "path": "./apps/overlay" }
+  ]
+}
