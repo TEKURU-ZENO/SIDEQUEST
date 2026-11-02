@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0b1017" />
+  <title>SIDEQUEST — Every stream is an adventure</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="#"><span class="brand-mark">✳</span><span>SIDEQUEST<small>COMMUNITY GAME ENGINE</small></span></a>
+      <div class="side-label">WORKSPACE</div>
+      <button class="nav-item active"><span>◈</span> Command center</button>
+      <button class="nav-item" id="overlayLink"><span>▣</span> OBS overlay <i>↗</i></button>
+      <button class="nav-item" id="planLink"><span>⌘</span> Build roadmap</button>
+      <div class="side-bottom"><div class="streamer-card"><div class="avatar">M</div><div><b>moonlit_morgan</b><small>Streamer workspace</small></div><span class="dots">•••</span></div><div class="local-note"><span class="pulse"></span> LOCAL DEMO MODE</div></div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar"><div class="crumb">WORKSPACE <span>/</span> COMMAND CENTER</div><div class="top-actions"><div class="connection"><span class="pulse"></span> Demo channel connected</div><button class="icon-btn" title="Notifications">♧</button><div class="avatar small">M</div></div></header>
+      <div class="content">
+        <section class="welcome-row"><div><div class="eyebrow"><span class="live-dot"></span> YOUR COMMUNITY, IN THE GAME</div><h1>Make chat part of the story.</h1><p class="subhead">A persistent adventure shaped by every viewer who shows up.</p></div><button id="launchBtn" class="primary-btn"><span>✦</span> Launch quest <kbd>↵</kbd></button></section>
+
+        <section class="stats-grid">
+          <article class="stat-card"><div class="stat-head">COMMUNITY LEVEL <span class="tiny-icon violet">✳</span></div><div class="stat-value" id="level">04</div><div class="stat-foot"><span class="accent">●</span> The Lantern Guild <span class="muted">· 2,460 XP</span></div></article>
+          <article class="stat-card"><div class="stat-head">QUESTS COMPLETED <span class="tiny-icon gold">⚑</span></div><div class="stat-value" id="questCount">12</div><div class="stat-foot"><span class="green">↗ 3</span> <span class="muted">this stream</span></div></article>
+          <article class="stat-card"><div class="stat-head">VIEWERS IN THE PARTY <span class="tiny-icon blue">♙</span></div><div class="stat-value" id="partyCount">08<span class="stat-unit">/ 24</span></div><div class="stat-foot"><span class="live-dot"></span> <span class="muted">Active in this quest</span></div></article>
+          <article class="stat-card"><div class="stat-head">COMMUNITY STREAK <span class="tiny-icon orange">♨</span></div><div class="stat-value"><span id="streak">03</span><span class="stat-unit"> wins</span></div><div class="stat-foot"><span class="muted">Best: 7 quests</span></div></article>
+        </section>
+
+        <section class="game-grid">
+          <article class="quest-panel panel">
+            <div class="panel-top"><div><div class="section-kicker"><span class="live-dot"></span><span id="questStatus">ACTIVE QUEST</span><span class="chapter">CHAPTER 04</span></div><h2 id="questTitle">The Ember Vault</h2></div><button class="more-btn" id="questMenu">•••</button></div>
+            <div class="quest-art" id="questArt"><div class="art-stars">✦　·　✧　　 ·　　　 ✦</div><div class="vault-glow"></div><div class="mountain m1"></div><div class="mountain m2"></div><div class="vault-symbol">⌑</div><div class="art-caption"><span class="difficulty">◆ MODERATE</span><span>THE SUNKEN ARCHIVE</span></div></div>
+            <div class="quest-description" id="questDesc">An ancient vault has stirred beneath the old city. Gather its scattered ember seals before the Ash Warden wakes.</div>
+            <div class="objective-head"><span>OBJECTIVES</span><span id="objectiveCount">1 OF 3 COMPLETE</span></div>
+            <div class="objectives" id="objectives"></div>
+            <div class="quest-footer"><div class="reward"><span class="reward-icon">✧</span><span><small>COMMUNITY REWARD</small><b id="reward">+240 Guild XP <i>·</i> Ember relic</b></span></div><button class="resolve-btn" id="resolveBtn">Resolve round <span>→</span></button></div>
+          </article>
+
+          <div class="right-stack">
+            <article class="panel party-panel"><div class="panel-heading"><div><div class="section-kicker">THE ADVENTURERS</div><h3>Party roles</h3></div><button class="text-btn" id="inviteBtn">Invite chat <span>↗</span></button></div><div class="role-grid" id="roles"></div><div class="party-bottom"><div class="avatars" id="avatars"></div><span id="joinedText">+ 5 adventurers exploring</span><button class="add-btn" id="addViewer" title="Add demo viewer">+</button></div></article>
+            <article class="panel activity-panel"><div class="panel-heading"><div><div class="section-kicker">HAPPENING NOW</div><h3>Chat activity</h3></div><span class="live-pill"><span class="live-dot"></span> LIVE</span></div><div class="feed" id="feed"></div><form class="chat-form" id="chatForm"><span class="chat-prefix">!</span><input id="chatInput" autocomplete="off" placeholder="Try attack, heal, scout…" aria-label="Enter a chat action"/><button aria-label="Send action">↑</button></form><div class="command-hint">Try <code>attack</code>, <code>heal</code>, <code>scout</code> or <code>vote 1</code></div></article>
+          </div>
+        </section>
+
+        <section class="lower-grid">
+          <article class="panel boss-panel"><div class="boss-label"><span class="boss-icon">♜</span><div><div class="section-kicker">ENCOUNTER PROGRESS</div><h3 id="bossName">Ash Warden</h3></div><span class="boss-phase" id="bossPhase">PHASE 1 · STIRRING</span></div><div class="hp-row"><span>WARDEN VITALITY</span><b id="hpText">68%</b></div><div class="hp-track"><div class="hp-fill" id="hpFill" style="width:68%"></div></div><div class="boss-note" id="bossNote">“Little sparks… you dare enter my halls?” <span>— Ash Warden</span></div></article>
+          <article class="panel director-panel"><div class="director-head"><span class="sparkle">✦</span><div><div class="section-kicker">AI STORY DIRECTOR</div><h3>World state remembered</h3></div><span class="memory-tag">MEMORY ON</span></div><p id="directorText">Your guild spared the Mosskeeper last quest. Something ancient has noticed your mercy…</p><div class="memory-chips"><span>◈ Mosskeeper spared</span><span>↗ 3 win streak</span></div></article>
+        </section>
+        <footer class="page-footer"><span>✳ SIDEQUEST</span><span>THE AI SETS THE SCENE. YOUR COMMUNITY WRITES THE RULES.</span><button id="resetBtn">Reset demo</button></footer>
+      </div>
+    </main>
+  </div>
+  <div class="toast" id="toast"></div>
+  <div class="modal-backdrop" id="modal"><div class="modal panel"><button class="modal-close" id="modalClose">×</button><div class="section-kicker">A MORE ACTIONABLE BUILD PLAN</div><h2>From stream toy to community game engine.</h2><p class="modal-intro">Prove the five-second feedback loop first. Earn the right to add persistent worlds and adaptive AI after real streamers return for a second session.</p><div class="roadmap" id="roadmap"></div><div class="plan-foot"><span>VERTICAL SLICE · 1 STREAMER · 1 GAME · 1 COMPLETE LOOP</span><button id="planLaunch" class="primary-btn">Back to the quest →</button></div></div></div>
+  <script src="app.js"></script>
+</body>
+</html>
