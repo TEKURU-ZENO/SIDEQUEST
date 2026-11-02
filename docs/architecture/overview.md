@@ -14,6 +14,8 @@ flowchart TB
   Domain[Pure TypeScript domain]
   Contracts[Zod contracts]
   World[Living world + progression]
+  Persistence[PostgreSQL repositories]
+  Publisher[Outbox publisher]
   AI[Adaptive Director]
   DB[(PostgreSQL)]
   Log[Domain event log + outbox]
@@ -21,12 +23,14 @@ flowchart TB
   Overlay --> API
   Twitch --> API
   API --> App
+  API --> Persistence
   App --> Domain
   App --> Contracts
   Domain --> World
-  Domain --> DB
-  Domain --> Log
-  Log --> AI
+  Persistence --> DB
+  Persistence --> Log
+  Log --> Publisher
+  Publisher --> API
   AI --> App
 ```
 
@@ -34,16 +38,16 @@ flowchart TB
 
 `pnpm boundaries` enforces the workspace dependency allowlist, requires direct declarations for cross-package imports, and rejects dependency cycles. CI runs it through `pnpm lint`.
 
-| Module              | May depend on                                           | Must not depend on                                          |
-| ------------------- | ------------------------------------------------------- | ----------------------------------------------------------- |
-| domain              | contracts, standard library                             | apps, application, persistence, intelligence, platform SDKs |
-| contracts           | Zod                                                     | domain implementations, apps, infrastructure                |
-| application         | domain, contracts                                       | Express, Socket.IO, Twitch SDK, Drizzle, OpenAI SDK         |
-| twitch              | contracts                                               | domain mutation APIs, persistence                           |
-| intelligence        | contracts, domain read models                           | direct state mutation, Twitch SDK, app code                 |
-| persistence         | application ports, domain types                         | UI, Twitch, intelligence orchestration                      |
-| apps/api            | application, contracts, adapters, config, observability | hidden cross-app imports                                    |
-| dashboard / overlay | contracts, ui                                           | database and provider credentials                           |
+| Module              | May depend on                                           | Must not depend on                                                     |
+| ------------------- | ------------------------------------------------------- | ---------------------------------------------------------------------- |
+| domain              | standard library                                        | contracts, apps, application, persistence, intelligence, platform SDKs |
+| contracts           | Zod                                                     | domain implementations, apps, infrastructure                           |
+| application         | domain, contracts                                       | Express, Socket.IO, Twitch SDK, Drizzle, OpenAI SDK                    |
+| twitch              | contracts                                               | domain mutation APIs, persistence                                      |
+| intelligence        | contracts, domain read models                           | direct state mutation, Twitch SDK, app code                            |
+| persistence         | application ports, contracts, domain types              | UI, Twitch, intelligence orchestration                                 |
+| apps/api            | application, contracts, adapters, config, observability | hidden cross-app imports                                               |
+| dashboard / overlay | contracts, ui                                           | database and provider credentials                                      |
 
 ## State transition path
 

@@ -12,7 +12,9 @@
     { "path": "../../packages/application" },
     { "path": "../../packages/config" },
     { "path": "../../packages/contracts" },
+    { "path": "../../packages/intelligence" },
     { "path": "../../packages/observability" },
+    { "path": "../../packages/persistence" },
     { "path": "../../packages/twitch" }
   ],
   "include": ["src/**/*.ts"]

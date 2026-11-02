@@ -7,6 +7,10 @@
     "outDir": "dist",
     "composite": true
   },
-  "references": [{ "path": "../application" }, { "path": "../domain" }],
+  "references": [
+    { "path": "../application" },
+    { "path": "../contracts" },
+    { "path": "../domain" }
+  ],
   "include": ["src/**/*.ts"]
 }

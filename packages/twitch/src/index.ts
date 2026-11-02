@@ -26,14 +26,22 @@ export function normalizeChatEvent(
     .toLowerCase()
     .split(/\s+/);
   const playerId = IdSchema.parse(parsed.data.chatter_user_id);
-  if (verb === "!join")
+  if (verb === "!join") {
+    const role = args[0] ?? "scout";
+    if (!["scout", "healer", "strategist", "saboteur"].includes(role))
+      return null;
     return {
       eventId: parsed.data.message_id,
       channelId: parsed.data.broadcaster_user_id,
       playerId,
       displayName: parsed.data.chatter_user_name,
-      command: { type: "player.join", playerId, role: "scout" },
+      command: {
+        type: "player.join",
+        playerId,
+        role: role as "scout" | "healer" | "strategist" | "saboteur",
+      },
     };
+  }
   const action = (
     {
       "!attack": "attack",
@@ -57,3 +65,26 @@ export function normalizeChatEvent(
     },
   };
 }
+
+export class ChatCommandRateLimiter {
+  private readonly lastAccepted = new Map<string, number>();
+
+  constructor(private readonly cooldownMs = 1500) {}
+
+  allow(channelId: string, playerId: string, now = Date.now()): boolean {
+    const key = `${channelId}:${playerId}`;
+    const previous = this.lastAccepted.get(key);
+    if (previous !== undefined && now - previous < this.cooldownMs)
+      return false;
+    this.lastAccepted.set(key, now);
+    if (this.lastAccepted.size > 10_000) {
+      for (const [entry, timestamp] of this.lastAccepted)
+        if (now - timestamp > this.cooldownMs * 10)
+          this.lastAccepted.delete(entry);
+    }
+    return true;
+  }
+}
+
+export * from "./oauth.js";
+export * from "./eventsub.js";

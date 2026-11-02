@@ -1,5 +1,14 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 type Role = "scout" | "healer" | "strategist" | "saboteur";
+type QuestDraft = {
+  title: string;
+  premise: string;
+  objectives: string[];
+  difficulty: "easy" | "moderate" | "hard";
+  rewardXp: number;
+  narrativeHook: string;
+  enemy?: string;
+};
 
 const roles: { name: Role; icon: string; className: string }[] = [
   { name: "scout", icon: "⌁", className: "scout" },
@@ -11,24 +20,71 @@ const quests = [
   {
     title: "The Ember Vault",
     enemy: "Ash Warden",
-    desc: "An ancient vault has stirred beneath the old city. Gather its scattered ember seals before the Ash Warden wakes.",
+    premise:
+      "An ancient vault has stirred beneath the old city. Gather its scattered ember seals before the Ash Warden wakes.",
+    objectives: [
+      "Gather ember seals",
+      "Hold the eastern passage",
+      "Defeat the Ash Warden",
+    ],
+    difficulty: "moderate" as const,
+    rewardXp: 240,
+    narrativeHook: "The guild's old choices echo through the vault.",
   },
   {
     title: "The Glasswood Oath",
     enemy: "Hollow Stag",
-    desc: "The forest remembers your mercy. Follow its silver roots and protect the Mosskeeper from a voice calling beneath the lake.",
+    premise:
+      "The forest remembers your mercy. Follow its silver roots and protect the Mosskeeper from a voice calling beneath the lake.",
+    objectives: [
+      "Follow silver roots",
+      "Protect the Mosskeeper",
+      "Silence the lake voice",
+    ],
+    difficulty: "moderate" as const,
+    rewardXp: 240,
+    narrativeHook: "The forest remembers the guild's mercy.",
   },
   {
     title: "Storm at Starfall",
     enemy: "Tempest Engine",
-    desc: "A signal burns on the horizon. Chart a safe route through the storm before the stranded crew runs out of time.",
+    premise:
+      "A signal burns on the horizon. Chart a safe route through the storm before the stranded crew runs out of time.",
+    objectives: [
+      "Find the signal",
+      "Chart a safe route",
+      "Reach the stranded crew",
+    ],
+    difficulty: "hard" as const,
+    rewardXp: 240,
+    narrativeHook: "A signal calls the guild toward a storm-lit horizon.",
   },
 ];
 type FeedItem = { name: string; text: string; role: Role | "system" };
+const API_BASE = (() => {
+  const configured = new URLSearchParams(window.location.search).get("api");
+  if (!configured) return "http://localhost:4000";
+  try {
+    const url = new URL(configured);
+    if (
+      url.protocol === "https:" ||
+      (url.protocol === "http:" &&
+        ["localhost", "127.0.0.1"].includes(url.hostname))
+    )
+      return url.origin;
+  } catch {
+    /* Fall back to local development API for invalid settings. */
+  }
+  return "http://localhost:4000";
+})();
 
 export function CommandCenter() {
   const [role, setRole] = useState<Role>("scout");
   const [quest, setQuest] = useState(0);
+  const [activeQuest, setActiveQuest] = useState<QuestDraft | null>(null);
+  const [proposal, setProposal] = useState<QuestDraft | null>(null);
+  const [proposalSource, setProposalSource] = useState("");
+  const [generating, setGenerating] = useState(false);
   const [launched, setLaunched] = useState(false);
   const [vitality, setVitality] = useState(68);
   const [party, setParty] = useState(0);
@@ -49,9 +105,25 @@ export function CommandCenter() {
     window.setTimeout(() => setToast(""), 2300);
   };
   const push = (item: FeedItem) => setFeed((old) => [item, ...old].slice(0, 7));
+  useEffect(() => {
+    void fetch(`${API_BASE}/api/game/snapshot`)
+      .then((response) => response.json())
+      .then((snapshot) => {
+        const state = snapshot.state;
+        setLaunched(state.status === "active");
+        setVitality(state.encounterVitality);
+        setParty(Object.keys(state.players ?? {}).length);
+        setActions(state.actions);
+        setProgress(state.objectiveProgress);
+        if (state.questContent)
+          setActiveQuest(state.questContent as QuestDraft);
+      })
+      .catch(() => undefined);
+  }, []);
+  const q = activeQuest ?? quests[quest]!;
   async function dispatch(command: unknown, success: string) {
     try {
-      const response = await fetch("http://localhost:4000/api/game/commands", {
+      const response = await fetch(`${API_BASE}/api/game/commands`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(command),
@@ -75,11 +147,15 @@ export function CommandCenter() {
       return false;
     }
   }
-  async function launch() {
+  async function launch(questToLaunch = q) {
     const ok = await dispatch(
       {
         type: "quest.launch",
-        questId: quests[quest]!.title.toLowerCase().replaceAll(" ", "-"),
+        questId: questToLaunch.title
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, ""),
+        questContent: questToLaunch,
       },
       "Quest launched — chat can join now",
     );
@@ -90,6 +166,26 @@ export function CommandCenter() {
         text: "A new chapter opens. The guild's choices echo forward.",
         role: "system",
       });
+    }
+  }
+  async function generateProposal() {
+    setGenerating(true);
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/intelligence/quest-proposal`,
+        { method: "POST" },
+      );
+      const body = await response.json();
+      if (!response.ok)
+        throw new Error(body.error?.message ?? "Could not generate a proposal");
+      setProposal(body.data as QuestDraft);
+      setProposalSource(body.source ?? "unknown");
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : "Quest proposal unavailable",
+      );
+    } finally {
+      setGenerating(false);
     }
   }
   async function send(raw = input) {
@@ -121,7 +217,7 @@ export function CommandCenter() {
         notify("Try !join, !attack, !heal, !scout, !vote or !sabotage");
         return;
       }
-      const response = await fetch("http://localhost:4000/api/game/snapshot");
+      const response = await fetch(`${API_BASE}/api/game/snapshot`);
       const snap = await response.json();
       const player = Object.values(
         snap.state.players as Record<string, { id: string; role: Role }>,
@@ -167,7 +263,7 @@ export function CommandCenter() {
   }
   async function resolve() {
     try {
-      const response = await fetch("http://localhost:4000/api/game/commands", {
+      const response = await fetch(`${API_BASE}/api/game/commands`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ type: "encounter.resolve" }),
@@ -190,6 +286,8 @@ export function CommandCenter() {
           : "Retreat — regroup and return stronger",
       );
       setQuest((quest + 1) % quests.length);
+      setActiveQuest(null);
+      setProposal(null);
       setVitality(won ? 100 : 54);
     } catch (e) {
       notify(
@@ -199,7 +297,6 @@ export function CommandCenter() {
       );
     }
   }
-  const q = quests[quest]!;
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -261,7 +358,7 @@ export function CommandCenter() {
                 Every viewer leaves a mark on your living community world.
               </p>
             </div>
-            <button className="primary-btn" onClick={launch}>
+            <button className="primary-btn" onClick={() => void launch()}>
               ✦ {launched ? "Quest live" : "Launch quest"}
             </button>
           </section>
@@ -346,17 +443,60 @@ export function CommandCenter() {
                   <span>THE SUNKEN ARCHIVE</span>
                 </div>
               </div>
-              <div className="quest-description">{q.desc}</div>
+              <div className="quest-description">{q.premise}</div>
+              {proposal ? (
+                <div className="proposal-card">
+                  <div className="section-kicker">
+                    CREATOR REVIEW ·{" "}
+                    {proposalSource === "openai"
+                      ? "AI PROPOSAL"
+                      : "AUTHORED FALLBACK"}
+                  </div>
+                  <h3>{proposal.title}</h3>
+                  <p>{proposal.premise}</p>
+                  <small>
+                    Suggested {proposal.difficulty} · {proposal.rewardXp} XP
+                    suggestion
+                  </small>
+                  <div className="proposal-actions">
+                    <button
+                      className="primary-btn"
+                      disabled={launched}
+                      onClick={() => {
+                        setActiveQuest(proposal);
+                        setProposal(null);
+                        void launch(proposal);
+                      }}
+                    >
+                      Approve &amp; launch
+                    </button>
+                    <button
+                      className="text-btn"
+                      onClick={() => setProposal(null)}
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  className="text-btn"
+                  disabled={generating || launched}
+                  onClick={generateProposal}
+                >
+                  {generating
+                    ? "Creating proposal…"
+                    : "✦ Generate quest proposal"}
+                </button>
+              )}
               <div className="objective-head">
                 <span>OBJECTIVES</span>
-                <span>{progress} OF 3 COMPLETE</span>
+                <span>
+                  {progress} OF {q.objectives.length} COMPLETE
+                </span>
               </div>
               <div className="objectives">
-                {[
-                  "Gather ember seals",
-                  "Hold the eastern passage",
-                  `Defeat the ${q.enemy}`,
-                ].map((o, i) => (
+                {q.objectives.map((o, i) => (
                   <div
                     className={`objective ${i < progress ? "done" : ""}`}
                     key={o}
@@ -366,7 +506,7 @@ export function CommandCenter() {
                     <small>
                       {i < progress
                         ? "COMPLETE"
-                        : i === 2
+                        : i === q.objectives.length - 1
                           ? "LOCKED"
                           : "IN PROGRESS"}
                     </small>
@@ -379,7 +519,7 @@ export function CommandCenter() {
                   <span>
                     <small>COMMUNITY REWARD</small>
                     <b>
-                      +240 Guild XP <i>·</i> Ember relic
+                      +240 Guild XP <i>·</i> core rules reward
                     </b>
                   </span>
                 </div>
@@ -502,7 +642,11 @@ export function CommandCenter() {
                   <div className="section-kicker">
                     ENCOUNTER PROGRESS · {actions} ACTIONS
                   </div>
-                  <h3>{q.enemy}</h3>
+                  <h3>
+                    {q.enemy ??
+                      q.objectives.at(-1)?.replace(/^Defeat the /i, "") ??
+                      "Encounter"}
+                  </h3>
                 </div>
                 <span className="boss-phase">
                   PHASE {vitality < 30 ? 2 : 1} ·{" "}
@@ -518,7 +662,12 @@ export function CommandCenter() {
               </div>
               <div className="boss-note">
                 “Little sparks… you dare enter my halls?”{" "}
-                <span>— {q.enemy}</span>
+                <span>
+                  —{" "}
+                  {q.enemy ??
+                    q.objectives.at(-1)?.replace(/^Defeat the /i, "") ??
+                    "Encounter"}
+                </span>
               </div>
             </article>
             <article className="panel director-panel">

@@ -13,10 +13,12 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "prettier --check src",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "pnpm build && node --env-file-if-exists=../../.env dist/migrate.js"
   },
   "dependencies": {
     "@sidequest/application": "workspace:*",
+    "@sidequest/contracts": "workspace:*",
     "@sidequest/domain": "workspace:*",
     "drizzle-orm": "^0.44.7",
     "pg": "^8.16.3"

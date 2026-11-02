@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "node --env-file-if-exists=../../.env --import tsx --watch src/server.ts",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "prettier --check src"
@@ -13,7 +13,9 @@
     "@sidequest/application": "workspace:*",
     "@sidequest/config": "workspace:*",
     "@sidequest/contracts": "workspace:*",
+    "@sidequest/intelligence": "workspace:*",
     "@sidequest/observability": "workspace:*",
+    "@sidequest/persistence": "workspace:*",
     "@sidequest/twitch": "workspace:*",
     "cors": "^2.8.5",
     "express": "^5.1.0",

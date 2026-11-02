@@ -1,107 +1,240 @@
-import type { GameCommand } from "@sidequest/contracts";
+export type PlayerRole = "scout" | "healer" | "strategist" | "saboteur";
+export type ActionType = "attack" | "heal" | "scout" | "vote" | "sabotage";
+export interface QuestContent {
+  title: string;
+  premise: string;
+  objectives: string[];
+  difficulty: "easy" | "moderate" | "hard";
+  rewardXp: number;
+  narrativeHook: string;
+}
+export type DomainCommand =
+  | { type: "quest.launch"; questId: string; questContent?: QuestContent }
+  | { type: "player.join"; playerId: string; role: PlayerRole }
+  | {
+      type: "encounter.act";
+      playerId: string;
+      action: ActionType;
+      target?: string | undefined;
+    }
+  | { type: "encounter.resolve" };
 
-export type Role = "scout" | "healer" | "strategist" | "saboteur";
-export type Player = { id: string; role: Role; contribution: number };
-export type GameState = {
+export interface PlayerState {
+  id: string;
+  role: PlayerRole;
+  contributions: Partial<Record<ActionType, number>>;
+}
+export interface GameState {
   questId: string;
+  questContent?: QuestContent;
   status: "ready" | "active" | "won" | "lost";
   encounterVitality: number;
-  players: Record<string, Player>;
-  actions: number;
   objectiveProgress: number;
+  players: Record<string, PlayerState>;
+  actions: number;
   sequence: number;
+  completedQuestIds: string[];
+  votes: Record<string, string>;
+}
+export type DomainEvent =
+  | {
+      type: "quest.started";
+      sequence: number;
+      questId: string;
+      questContent?: QuestContent;
+    }
+  | {
+      type: "player.joined";
+      sequence: number;
+      playerId: string;
+      role: PlayerRole;
+    }
+  | {
+      type: "encounter.action.applied";
+      sequence: number;
+      playerId: string;
+      action: ActionType;
+      vitality: number;
+      target?: string;
+    }
+  | {
+      type: "encounter.vote.cast";
+      sequence: number;
+      playerId: string;
+      target: string;
+    }
+  | { type: "encounter.resolved"; sequence: number; outcome: "won" | "lost" };
+export interface CommandResult {
+  state: GameState;
+  events: DomainEvent[];
+}
+
+const budgets: Record<ActionType, number> = {
+  attack: 10,
+  heal: 5,
+  scout: 2,
+  vote: 1,
+  sabotage: 5,
 };
-export type DomainEvent = {
-  type: string;
-  payload: Record<string, unknown>;
-  sequence: number;
+const requiredRole: Record<ActionType, PlayerRole> = {
+  attack: "scout",
+  heal: "healer",
+  scout: "scout",
+  vote: "strategist",
+  sabotage: "saboteur",
 };
-export const createGame = (questId: string): GameState => ({
-  questId,
-  status: "ready",
-  encounterVitality: 68,
-  players: {},
-  actions: 0,
-  objectiveProgress: 1,
-  sequence: 0,
-});
-export function applyCommand(
-  state: GameState,
-  command: GameCommand,
-): { state: GameState; events: DomainEvent[] } {
-  const next: GameState = structuredClone(state);
-  const events: DomainEvent[] = [];
-  const emit = (type: string, payload: Record<string, unknown>) => {
-    next.sequence++;
-    events.push({ type, payload, sequence: next.sequence });
+export function createGame(questId: string): GameState {
+  return {
+    questId,
+    status: "ready",
+    encounterVitality: 68,
+    objectiveProgress: 0,
+    players: {},
+    actions: 0,
+    sequence: 0,
+    completedQuestIds: [],
+    votes: {},
   };
+}
+function validate(state: GameState): void {
+  if (
+    !Number.isInteger(state.encounterVitality) ||
+    state.encounterVitality < 0 ||
+    state.encounterVitality > 100
+  )
+    throw new Error("Invalid encounter vitality");
+  if (
+    !Number.isInteger(state.actions) ||
+    state.actions < 0 ||
+    !Number.isInteger(state.sequence) ||
+    state.sequence < 0
+  )
+    throw new Error("Invalid game counters");
+  for (const player of Object.values(state.players))
+    for (const [action, count] of Object.entries(player.contributions)) {
+      if (
+        !Number.isInteger(count) ||
+        count! < 0 ||
+        count! > budgets[action as ActionType]
+      )
+        throw new Error(`Invalid ${action} contribution`);
+    }
+}
+type EventPayload = DomainEvent extends infer E
+  ? E extends DomainEvent
+    ? Omit<E, "sequence">
+    : never
+  : never;
+function event<T extends EventPayload>(
+  state: GameState,
+  payload: T,
+): Extract<DomainEvent, { type: T["type"] }> {
+  state.sequence += 1;
+  return { ...payload, sequence: state.sequence } as unknown as Extract<
+    DomainEvent,
+    { type: T["type"] }
+  >;
+}
+export function applyCommand(
+  input: GameState,
+  command: DomainCommand,
+): CommandResult {
+  validate(input);
+  const state = structuredClone(input);
+  const events: DomainEvent[] = [];
   if (command.type === "quest.launch") {
-    if (next.status === "active") throw new Error("Quest is already active");
-    next.questId = command.questId;
-    next.status = "active";
-    next.encounterVitality = 68;
-    next.actions = 0;
-    next.objectiveProgress = 1;
-    next.players = {};
-    emit("quest.launched", { questId: command.questId });
+    if (state.status === "active") throw new Error("A quest is already active");
+    if (state.completedQuestIds.includes(command.questId))
+      throw new Error("Quest has already been completed");
+    state.questId = command.questId;
+    if (command.questContent)
+      state.questContent = structuredClone(command.questContent);
+    else delete state.questContent;
+    state.status = "active";
+    events.push(
+      event(state, {
+        type: "quest.started",
+        questId: command.questId,
+        ...(command.questContent
+          ? { questContent: structuredClone(command.questContent) }
+          : {}),
+      }),
+    );
   } else if (command.type === "player.join") {
-    if (next.status !== "active")
-      throw new Error("Join is only available during an active quest");
-    if (
-      !next.players[command.playerId] &&
-      Object.keys(next.players).length >= 24
-    )
-      throw new Error("Party is full");
-    next.players[command.playerId] ??= {
+    if (state.status !== "active")
+      throw new Error("Players can only join an active quest");
+    if (state.players[command.playerId]) return { state, events };
+    state.players[command.playerId] = {
       id: command.playerId,
       role: command.role,
-      contribution: 0,
+      contributions: {},
     };
-    emit("player.joined", { playerId: command.playerId, role: command.role });
+    events.push(
+      event(state, {
+        type: "player.joined",
+        playerId: command.playerId,
+        role: command.role,
+      }),
+    );
   } else if (command.type === "encounter.act") {
-    if (next.status !== "active")
+    if (state.status !== "active")
       throw new Error("Actions require an active quest");
-    const player = next.players[command.playerId];
-    if (!player) throw new Error("Join the party before acting");
-    if (player.contribution >= 10)
-      throw new Error("Contribution cap reached for this quest");
-    const requiredRole =
-      command.action === "heal"
-        ? "healer"
-        : command.action === "scout"
-          ? "scout"
-          : command.action === "vote"
-            ? "strategist"
-            : command.action === "sabotage"
-              ? "saboteur"
-              : undefined;
-    if (requiredRole && player.role !== requiredRole)
-      throw new Error(`${command.action} requires the ${requiredRole} role`);
+    const player = state.players[command.playerId];
+    if (!player) throw new Error("Player must join before acting");
+    if (player.role !== requiredRole[command.action])
+      throw new Error(
+        `${command.action} requires the ${requiredRole[command.action]} role`,
+      );
+    const count = player.contributions[command.action] ?? 0;
+    if (command.action !== "vote" && count >= budgets[command.action])
+      throw new Error(`Contribution cap reached for ${command.action}`);
+    if (command.action === "vote" && !command.target?.trim())
+      throw new Error("Vote requires a target");
+    player.contributions[command.action] =
+      command.action === "vote" ? 1 : count + 1;
+    state.actions += 1;
     if (command.action === "attack")
-      next.encounterVitality = Math.max(0, next.encounterVitality - 6);
-    if (command.action === "sabotage")
-      next.encounterVitality = Math.max(0, next.encounterVitality - 7);
+      state.encounterVitality = Math.max(0, state.encounterVitality - 6);
     if (command.action === "heal")
-      next.encounterVitality = Math.min(100, next.encounterVitality + 4);
-    if (command.action === "scout")
-      next.objectiveProgress = Math.min(3, next.objectiveProgress + 1);
-    player.contribution++;
-    next.actions++;
-    emit("encounter.action.applied", {
-      playerId: player.id,
-      role: player.role,
-      action: command.action,
-      vitality: next.encounterVitality,
-      objectiveProgress: next.objectiveProgress,
-    });
-  } else if (command.type === "encounter.resolve") {
-    if (next.status !== "active") throw new Error("No active quest to resolve");
-    const score =
-      next.actions * 2 +
-      Object.keys(next.players).length +
-      next.objectiveProgress * 4;
-    next.status = score >= 20 ? "won" : "lost";
-    emit("quest.resolved", { outcome: next.status, score });
+      state.encounterVitality = Math.min(100, state.encounterVitality + 8);
+    if (command.action === "vote") {
+      state.votes[command.playerId] = command.target!;
+      events.push(
+        event(state, {
+          type: "encounter.vote.cast",
+          playerId: command.playerId,
+          target: command.target!,
+        }),
+      );
+    } else
+      events.push(
+        event(state, {
+          type: "encounter.action.applied",
+          playerId: command.playerId,
+          action: command.action,
+          vitality: state.encounterVitality,
+        }),
+      );
+  } else {
+    if (state.status !== "active")
+      throw new Error("No active quest to resolve");
+    state.status = state.encounterVitality <= 0 ? "won" : "lost";
+    state.completedQuestIds.push(state.questId);
+    events.push(
+      event(state, { type: "encounter.resolved", outcome: state.status }),
+    );
   }
-  return { state: next, events };
+  validate(state);
+  return { state, events };
 }
+export function getVoteTally(state: GameState): Record<string, number> {
+  return Object.values(state.votes).reduce<Record<string, number>>(
+    (tally, target) => {
+      tally[target] = (tally[target] ?? 0) + 1;
+      return tally;
+    },
+    {},
+  );
+}
+
+export * from "./world.js";

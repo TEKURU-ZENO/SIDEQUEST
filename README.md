@@ -4,9 +4,9 @@
 
 SIDEQUEST lets Twitch creators turn their audience into a persistent collaborative community through shared adventures, deterministic encounters, adaptive storytelling and collective progression. The world owns history, the game engine owns rules, AI proposes and narrates experiences, and Twitch is the first platform adapter.
 
-## Current milestone: Phase 0
+## Current milestone: Phase 7 — Reliability and Operational Maturity
 
-This branch establishes the monorepo foundation and migrates the browser prototype into React apps. The original prototype is preserved in the `prototype-v1` Git tag and its root files remain available until migrated features are checked. No Twitch credentials or AI key are required for local development.
+Phases 1–5 established deterministic encounters, the living-world aggregate, PostgreSQL repositories, Twitch OAuth/EventSub, bounded AI proposal and recap services, and snapshot recovery. Phase 6 connects creator-approved quest proposals to launch events and the OBS overlay, with configurable hosted API origins and layout. Phase 7 adds readiness probes, safe request errors, secret redaction, and graceful shutdown. The in-memory adapter remains available when `DATABASE_URL` is unset. Production API startup remains disabled until authenticated streamer and overlay sessions are implemented. The original prototype is preserved in the `prototype-v1` Git tag. No Twitch credentials or AI key are required for local development.
 
 ## Prerequisites and setup
 
@@ -19,9 +19,19 @@ pnpm install
 pnpm dev
 ```
 
-The dashboard is at `http://localhost:5173`, the OBS overlay at `http://localhost:5174`, and the API at `http://localhost:4000/health`. The local dashboard sends game commands through the API; the overlay receives versioned Socket.IO snapshots. The local API currently uses an in-memory repository, so state resets when it restarts.
+The dashboard is at `http://localhost:5173`, the OBS overlay at `http://localhost:5174`, and the API at `http://localhost:4000/health`. The API uses an in-memory repository when `DATABASE_URL` is unset. To retain game and world state across restarts, create `.env` from `.env.example`, start PostgreSQL, run the migration command below, and start the apps:
 
-Copy `.env.example` to `.env` to configure local settings. Do not commit secrets. Start PostgreSQL when needed with `docker compose -f infrastructure/docker/compose.yaml up -d`; apply explicit migrations from `packages/persistence/migrations` before connecting a production repository.
+```sh
+docker compose -f infrastructure/docker/compose.yaml up -d
+pnpm --filter @sidequest/persistence db:migrate
+pnpm dev
+```
+
+PostgreSQL writes domain events, snapshots and realtime outbox rows in one transaction. The outbox publisher retries failed deliveries. Production startup remains disabled until authenticated streamer and overlay sessions are implemented.
+
+To enable Twitch locally, register `http://localhost:4000/auth/twitch/callback` as the app redirect URI, then set `TWITCH_CLIENT_ID` and `TWITCH_CLIENT_SECRET` in `.env`. With PostgreSQL enabled, also set `TWITCH_TOKEN_ENCRYPTION_KEY` to a fresh 32-byte key represented as 64 hexadecimal characters. Open `http://localhost:4000/auth/twitch` to connect the broadcaster. Twitch credentials and tokens stay on the backend; do not expose them in the dashboard or overlay.
+
+`.env` is ignored by Git; keep credentials there and never commit them. The production repository remains unavailable until authentication is implemented.
 
 Useful commands:
 
@@ -36,21 +46,21 @@ Capture the preserved pre-migration UI with `pnpm capture:prototype`. The archiv
 
 ## Workspace map
 
-| Workspace                | Responsibility                                                     |
-| ------------------------ | ------------------------------------------------------------------ |
-| `apps/api`               | Express API, Socket.IO gateway, local in-memory adapter            |
-| `apps/dashboard`         | Streamer command center and demo chat controls                     |
-| `apps/overlay`           | Transparent, read-only OBS scene connected to snapshots            |
-| `packages/domain`        | Pure deterministic game rules, state and domain events             |
-| `packages/application`   | Validated command use cases and repository ports                   |
-| `packages/contracts`     | Zod schemas for commands, envelopes, API and realtime events       |
-| `packages/twitch`        | Twitch event normalization into domain commands                    |
-| `packages/intelligence`  | Validated AI quest proposals, world context and authored fallback  |
-| `packages/persistence`   | Drizzle schema, PostgreSQL and explicit SQL migration/outbox shape |
-| `packages/ui`            | Shared React UI primitives and theme tokens                        |
-| `packages/observability` | Pino logger with credential redaction and OTel API dependency      |
-| `packages/config`        | Environment parsing and safe defaults                              |
-| `packages/testing`       | Reusable local demo fixtures                                       |
+| Workspace                | Responsibility                                                        |
+| ------------------------ | --------------------------------------------------------------------- |
+| `apps/api`               | Express API, Socket.IO gateway, local or PostgreSQL adapter           |
+| `apps/dashboard`         | Streamer command center and demo chat controls                        |
+| `apps/overlay`           | Transparent, read-only OBS scene connected to snapshots               |
+| `packages/domain`        | Pure deterministic game rules, state and domain events                |
+| `packages/application`   | Validated command use cases and repository ports                      |
+| `packages/contracts`     | Zod schemas for commands, envelopes, API and realtime events          |
+| `packages/twitch`        | Twitch event normalization into domain commands                       |
+| `packages/intelligence`  | Validated AI quest proposals, world context and authored fallback     |
+| `packages/persistence`   | PostgreSQL repositories, explicit migrations and transactional outbox |
+| `packages/ui`            | Shared React UI primitives and theme tokens                           |
+| `packages/observability` | Pino logger with credential redaction and OTel API dependency         |
+| `packages/config`        | Environment parsing and safe defaults                                 |
+| `packages/testing`       | Reusable local demo fixtures                                          |
 
 `apps/viewer` is reserved and intentionally not implemented. See [architecture overview](docs/architecture/overview.md), [prototype migration matrix](docs/architecture/prototype-migration.md), [security boundaries](docs/security/boundaries.md), and [ADRs](docs/adr/).
 
@@ -67,12 +77,20 @@ Capture the preserved pre-migration UI with `pnpm capture:prototype`. The archiv
 ## Phase plan
 
 0. Architecture foundation and prototype migration.
-1. Deterministic encounters, roles, lifecycle and replayable simulations.
-2. Persistent guilds, identities, progression and verified world history.
-3. PostgreSQL repositories, transactional event/outbox and realtime recovery.
-4. Twitch OAuth, EventSub, chat moderation and reconnection.
-5. Adaptive quest, narrative and world chronicler services with fallbacks.
-6. Creator controls and production OBS integration.
-7. Creator validation, reliability, security and operational maturity.
+1. Persistent world aggregate: guild identity, member progression, adventures, chapters, decisions, artifacts, relationships and append-only history; deterministic encounters and replayable simulations.
+2. Persistent guilds, identities, progression and verified world history (domain and application foundation implemented).
+3. PostgreSQL repositories, transactional event/outbox and realtime recovery (in progress).
+4. Twitch OAuth, EventSub chat ingestion, command rate limits and reconnection (in progress).
+5. Adaptive quest, narrative and world chronicler services with fallbacks (initial API slice implemented; creator approval and live provider validation remain open).
+6. Creator controls and production OBS integration (initial proposal approval and configurable overlay slice implemented; production deployment remains gated).
+7. Creator validation, reliability, security and operational maturity (health probes, graceful shutdown and safe request errors implemented; public launch gates remain open).
 
-The next phase must not begin until Phase 0 checks pass and migrated behavior is reviewed.
+Phase 1 began before all Phase 0 acceptance gaps were closed, at the user's direction. Phase 0 remains open; production authentication, live Twitch validation, live AI provider validation and full frontend parity remain future acceptance work. See the [Phase 7 production readiness checklist](docs/operations/production-readiness.md) for deployment gates and probe behavior.
+
+### Phase 5 API slice
+
+The API exposes `POST /api/intelligence/quest-proposal`, `POST /api/intelligence/narrative` (requires a completed `adventureId`), and `GET /api/intelligence/world-summary`. Quest and narrative routes use OpenAI Responses structured JSON output when `OPENAI_API_KEY` is configured; otherwise they return bounded authored fallback content and a `source` field. Set `OPENAI_MODEL` to choose the model. These endpoints return proposals and summaries only: they do not launch adventures, grant XP, or write world events. Provider output is locally schema-validated, provider calls have an 8 second timeout, and request storage is disabled.
+
+### Phase 6 creator and OBS slice
+
+The command center can request a quest proposal, show its AI/fallback source, and require an explicit creator approval before launch. Approved quest display content is attached to the game launch event and snapshots so the overlay can show the title, premise, and objectives. The game domain still controls encounter rules and fixed rewards; the proposal's suggested XP is informational. For hosted dashboard/OBS pages, pass `?api=https%3A%2F%2Fapi.example.com` to point both apps to the API and configure `APP_ORIGINS` as the comma-separated exact dashboard and overlay origins. OBS can also use `?layout=compact&accent=%239be8c3`. Production API startup is still disabled until authenticated streamer and overlay sessions are implemented.

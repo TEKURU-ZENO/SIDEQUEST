@@ -937,6 +937,41 @@ body {
   opacity: 1;
   transform: translate(-50%, 0);
 }
+.proposal-card {
+  margin: 14px 0;
+  padding: 14px;
+  border: 1px solid #6d5c8c;
+  border-radius: 8px;
+  background: linear-gradient(140deg, #201d2d, #17212a);
+}
+.proposal-card h3 {
+  margin: 8px 0 5px;
+  font: 600 18px var(--display);
+}
+.proposal-card p {
+  margin: 0 0 8px;
+  color: #b7c0ca;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.proposal-card small {
+  color: #b9a7e5;
+  font: 9px var(--mono);
+}
+.proposal-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+.proposal-actions .primary-btn {
+  padding: 9px 12px;
+  font-size: 10px;
+}
+.proposal-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .modal-backdrop {
   position: fixed;
   inset: 0;

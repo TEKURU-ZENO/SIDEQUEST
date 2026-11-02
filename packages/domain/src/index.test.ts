@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { applyCommand, createGame } from "./index.js";
-import { GameCommandSchema } from "@sidequest/contracts";
+import type { DomainCommand } from "./index.js";
 
-const command = (value: unknown) => GameCommandSchema.parse(value);
+const command = (value: DomainCommand) => value;
 describe("deterministic encounter domain", () => {
   it("launches, joins, applies actions and resolves with a repeatable outcome", () => {
     let state = createGame("ember-vault");

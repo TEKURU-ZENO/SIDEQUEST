@@ -1,5 +1,6 @@
 @import url("https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap");
 :root {
+  --overlay-accent: #9be8c3;
   font-family: "DM Sans", sans-serif;
   color: #f1f4f5;
   background: transparent;
@@ -28,7 +29,7 @@ body {
 }
 .top {
   height: 4px;
-  background: linear-gradient(90deg, #89e1b7, #b8a4f3);
+  background: linear-gradient(90deg, var(--overlay-accent), #b8a4f3);
 }
 .inner {
   padding: 18px 19px 16px;
@@ -36,7 +37,7 @@ body {
 .brand {
   font: 700 10px "Space Grotesk";
   letter-spacing: 0.14em;
-  color: #9be8c3;
+  color: var(--overlay-accent);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -155,4 +156,20 @@ body {
   .widget {
     width: min(370px, 100%);
   }
+}
+.overlay-wrap.compact {
+  padding: 12px;
+}
+.overlay-wrap.compact .widget {
+  width: min(330px, 100%);
+}
+.overlay-wrap.compact .inner {
+  padding: 13px 15px 12px;
+}
+.overlay-wrap.compact .chapter {
+  margin-top: 12px;
+}
+.overlay-wrap.compact .objectives {
+  gap: 6px;
+  margin-top: 11px;
 }
