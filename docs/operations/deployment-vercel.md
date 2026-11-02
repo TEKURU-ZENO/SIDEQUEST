@@ -1,18 +1,25 @@
-# Vercel deployment
+# Vercel multi-service deployment
 
-The repository-level Vercel project deploys the dashboard as a static Vite site:
+The repository root `vercel.json` defines three services under one Vercel project:
 
-- Root Directory: repository root
-- Install command: `pnpm install --frozen-lockfile`
-- Build command: `pnpm --filter @sidequest/dashboard build`
-- Output directory: `apps/dashboard/dist`
+| Service     | Root             | Framework | Public route                                    |
+| ----------- | ---------------- | --------- | ----------------------------------------------- |
+| `api`       | `apps/api`       | Express   | `/api/*`, `/auth/*`, `/health*`, `/socket.io/*` |
+| `dashboard` | `apps/dashboard` | Vite      | Remaining paths (`/`)                           |
+| `overlay`   | `apps/overlay`   | Vite      | `/overlay/*`                                    |
 
-These settings are encoded in [`vercel.json`](../../vercel.json). Set Vercel's Node.js version to 22 to match the local prerequisite.
+API, auth, health and Socket.IO rewrites are ordered before the overlay and dashboard catch-all rules. The overlay Vite build uses `/overlay/` as its asset base; dashboard and overlay clients use same-origin `/api` and `/socket.io` URLs by default. Local development keeps the existing localhost ports, and `?api=https://api.example.com` can override the API origin when needed.
 
-## Overlay project
+## Bindings
 
-Create a second Vercel project from the same repository with Root Directory `apps/overlay`. Use the Vite preset and build command `pnpm --filter @sidequest/overlay build`, and include workspace source files outside the app directory in the build. The output directory is `dist`.
+There are no Vercel service bindings in this configuration. Dashboard and overlay requests to the API run in the browser, not in server-side functions, so the clients cannot use runtime-only binding variables. They reach the API through the public same-origin rewrites. The API does not make server-side requests to another Vercel service.
 
-## API and release status
+## API release gate
 
-The dashboard and overlay accept an API base URL through the `api` query parameter. For example, append `?api=https%3A%2F%2Fapi.example.com` to each deployed frontend URL. The API requires a long-running Node.js host, PostgreSQL, and correct `APP_ORIGINS` entries. It is not deployed by the Vercel static project. The API intentionally throws during production startup until authenticated streamer and overlay sessions are implemented. Keep deployments as previews until that gate is removed through the security acceptance work; frontend deployment alone does not make the service production ready.
+The API entrypoint exports its HTTP server for Vercel's Express runtime and does not open a separate listening port when `VERCEL=1`. Preview deployments can start the API using Vercel's `VERCEL_ENV=preview` marker. Production startup intentionally throws until authenticated streamer and overlay sessions are implemented. Keep production environment variables separate from Preview, enable Vercel Preview Deployment Protection before sharing a preview URL, and do not point Preview at production data. Twitch EventSub and the transactional outbox also have long-lived/background behavior that needs deployment validation for a serverless runtime.
+
+Vercel WebSocket support is currently in beta. The `/socket.io/*` rewrite targets the API service so the overlay's realtime connection uses the shared domain; validate this against the project's Vercel plan and current runtime before relying on it for a live stream.
+
+## Local Vercel development
+
+Install the Vercel CLI, then run `vercel dev -L` from the repository root to exercise the multi-service routes. The regular `pnpm dev` workflow remains available for the current three-port local setup.

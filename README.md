@@ -42,11 +42,9 @@ pnpm test
 pnpm build
 ```
 
-## Vercel dashboard deployment
+## Vercel multi-service deployment
 
-The root `vercel.json` builds and serves the static dashboard from this pnpm monorepo. Import the repository as a Vercel project with the repository root as its Root Directory; the checked-in configuration supplies the install, build and output settings. The OBS overlay can be deployed as a second static project from `apps/overlay` using the Vite preset and `pnpm --filter @sidequest/overlay build` (with the monorepo root included in the build).
-
-The Vercel deployment hosts the frontend only. The API uses a long-running Express and Socket.IO server with PostgreSQL and is not included in this static deployment. Configure a separately hosted API, then open the dashboard and overlay with `?api=https%3A%2F%2Fapi.example.com`. The API currently refuses `NODE_ENV=production` until authenticated streamer and overlay sessions exist, so a public production backend is still gated. Deploy the frontend as a preview until that security work is complete; do not treat a successful Vercel build as production readiness.
+The root [`vercel.json`](vercel.json) defines three Vercel services in one project: an Express API, a Vite dashboard, and a Vite OBS overlay. The public routes send `/api/*`, `/auth/*`, `/health*`, and `/socket.io/*` to the API, `/overlay/*` to the overlay, and remaining paths to the dashboard. See the [Vercel deployment notes](docs/operations/deployment-vercel.md) for how the clients use the shared routes and the remaining production gate.
 
 Capture the preserved pre-migration UI with `pnpm capture:prototype`. The archived images are [dashboard](docs/architecture/prototype-screenshots/dashboard.png) and [overlay](docs/architecture/prototype-screenshots/overlay.png).
 
@@ -101,4 +99,4 @@ The API exposes `POST /api/intelligence/quest-proposal`, `POST /api/intelligence
 
 ### Phase 6 creator and OBS slice
 
-The command center can request a quest proposal, show its AI/fallback source, and require an explicit creator approval before launch. Approved quest display content is attached to the game launch event and snapshots so the overlay can show the title, premise, and objectives. The game domain still controls encounter rules and fixed rewards; the proposal's suggested XP is informational. For hosted dashboard/OBS pages, pass `?api=https%3A%2F%2Fapi.example.com` to point both apps to the API and configure `APP_ORIGINS` as the comma-separated exact dashboard and overlay origins. OBS can also use `?layout=compact&accent=%239be8c3`. Production API startup is still disabled until authenticated streamer and overlay sessions are implemented.
+The command center can request a quest proposal, show its AI/fallback source, and require an explicit creator approval before launch. Approved quest display content is attached to the game launch event and snapshots so the overlay can show the title, premise, and objectives. The game domain still controls encounter rules and fixed rewards; the proposal's suggested XP is informational. In a Vercel deployment, both clients use same-origin `/api` and `/socket.io` routes; `?api=https%3A%2F%2Fapi.example.com` remains available when hosting the API separately. Configure `APP_ORIGINS` as the exact frontend origins when using separate hosts. OBS can also use `?layout=compact&accent=%239be8c3`. Production API startup is still disabled until authenticated streamer and overlay sessions are implemented.

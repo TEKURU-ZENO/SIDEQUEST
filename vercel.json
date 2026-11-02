@@ -1,7 +1,59 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": null,
-  "installCommand": "pnpm install --frozen-lockfile",
-  "buildCommand": "pnpm --filter @sidequest/dashboard build",
-  "outputDirectory": "apps/dashboard/dist"
+  "services": {
+    "api": {
+      "root": "apps/api",
+      "framework": "express",
+      "installCommand": "pnpm install --frozen-lockfile",
+      "buildCommand": "pnpm --filter @sidequest/api... build"
+    },
+    "dashboard": {
+      "root": "apps/dashboard",
+      "framework": "vite",
+      "installCommand": "pnpm install --frozen-lockfile",
+      "buildCommand": "pnpm --filter @sidequest/dashboard... build",
+      "outputDirectory": "dist"
+    },
+    "overlay": {
+      "root": "apps/overlay",
+      "framework": "vite",
+      "installCommand": "pnpm install --frozen-lockfile",
+      "buildCommand": "pnpm --filter @sidequest/overlay... build",
+      "outputDirectory": "dist"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": { "service": "api" }
+    },
+    {
+      "source": "/socket.io/:path*",
+      "destination": { "service": "api" }
+    },
+    {
+      "source": "/auth/:path*",
+      "destination": { "service": "api" }
+    },
+    {
+      "source": "/health",
+      "destination": { "service": "api" }
+    },
+    {
+      "source": "/health/:path*",
+      "destination": { "service": "api" }
+    },
+    {
+      "source": "/overlay",
+      "destination": { "service": "overlay", "path": "/" }
+    },
+    {
+      "source": "/overlay/:path*",
+      "destination": { "service": "overlay", "path": "/:path*" }
+    },
+    {
+      "source": "/(.*)",
+      "destination": { "service": "dashboard" }
+    }
+  ]
 }

@@ -63,7 +63,12 @@ const quests = [
 type FeedItem = { name: string; text: string; role: Role | "system" };
 const API_BASE = (() => {
   const configured = new URLSearchParams(window.location.search).get("api");
-  if (!configured) return "http://localhost:4000";
+  if (!configured) {
+    return ["localhost", "127.0.0.1"].includes(window.location.hostname) &&
+      window.location.port === "5173"
+      ? "http://localhost:4000"
+      : window.location.origin;
+  }
   try {
     const url = new URL(configured);
     if (
@@ -390,7 +395,12 @@ export function CommandCenter() {
         </button>
         <a
           className="nav-item"
-          href="http://localhost:5174"
+          href={
+            ["localhost", "127.0.0.1"].includes(window.location.hostname) &&
+            window.location.port === "5173"
+              ? "http://localhost:5174"
+              : "/overlay/"
+          }
           target="_blank"
           rel="noreferrer"
         >

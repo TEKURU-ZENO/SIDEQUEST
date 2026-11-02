@@ -50,9 +50,12 @@ export const environment = loadEnvironment(process.env);
 const appOrigins = environment.APP_ORIGINS.split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
-if (environment.NODE_ENV === "production") {
+if (
+  environment.NODE_ENV === "production" &&
+  !(process.env.VERCEL === "1" && process.env.VERCEL_ENV === "preview")
+) {
   throw new Error(
-    "Production mode is disabled until authenticated streamer and overlay sessions are configured.",
+    "Production deployment is disabled until authenticated streamer and overlay sessions are configured.",
   );
 }
 
@@ -552,7 +555,7 @@ io.on("connection", async (socket) => {
   }
 });
 
-if (process.env.NODE_ENV !== "test") {
+if (process.env.NODE_ENV !== "test" && process.env.VERCEL !== "1") {
   let shuttingDown = false;
   const shutdown = async (signal: NodeJS.Signals) => {
     if (shuttingDown) return;
@@ -603,3 +606,5 @@ if (process.env.NODE_ENV !== "test") {
       process.exitCode = 1;
     });
 }
+
+export default server;

@@ -33,8 +33,12 @@ const fallback: Snapshot = {
 
 function getApiBase(): string {
   const configured = new URLSearchParams(window.location.search).get("api");
-  if (!configured)
-    return `${window.location.protocol}//${window.location.hostname}:4000`;
+  if (!configured) {
+    return ["localhost", "127.0.0.1"].includes(window.location.hostname) &&
+      window.location.port === "5174"
+      ? `${window.location.protocol}//${window.location.hostname}:4000`
+      : window.location.origin;
+  }
   try {
     const url = new URL(configured);
     if (
