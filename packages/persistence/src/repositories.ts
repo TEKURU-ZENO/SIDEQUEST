@@ -1,5 +1,11 @@
 import { and, asc, desc, eq, gt, isNull, lt, or } from "drizzle-orm";
-import { RealtimeEventSchema } from "@sidequest/contracts";
+import {
+  GameStateSchema,
+  GameDomainEventSchema,
+  RealtimeEventSchema,
+  WorldEventSchema,
+  WorldStateSchema,
+} from "@sidequest/contracts";
 import {
   createGame,
   type DomainEvent,
@@ -14,6 +20,7 @@ import {
   gameSnapshots,
   guilds,
   outbox,
+  twitchEventInbox,
   worldSnapshots,
 } from "./schema.js";
 
@@ -24,24 +31,34 @@ export class ConcurrentAggregateUpdateError extends Error {
   }
 }
 
+function parseGameState(value: unknown): GameState {
+  const record =
+    value && typeof value === "object"
+      ? (value as Record<string, unknown>)
+      : value;
+  const legacyCompatible =
+    record && typeof record === "object" && !Array.isArray(record)
+      ? { partyVitality: 100, ...record }
+      : record;
+  const parsed = GameStateSchema.safeParse(legacyCompatible);
+  if (!parsed.success)
+    throw new Error(
+      `Stored game snapshot failed validation: ${parsed.error.issues[0]?.path.join(".") ?? "unknown field"}`,
+    );
+  const { questContent, ...state } = parsed.data;
+  return { ...state, ...(questContent ? { questContent } : {}) };
+}
+
 function assertGameState(value: unknown): asserts value is GameState {
-  if (!value || typeof value !== "object")
-    throw new Error("Stored game snapshot is not an object");
-  const state = value as Partial<GameState>;
-  if (
-    typeof state.questId !== "string" ||
-    !["ready", "active", "won", "lost"].includes(state.status ?? "") ||
-    !Number.isInteger(state.sequence) ||
-    !Number.isInteger(state.encounterVitality) ||
-    (state.encounterVitality ?? -1) < 0 ||
-    (state.encounterVitality ?? 101) > 100 ||
-    !state.players ||
-    typeof state.players !== "object" ||
-    !Array.isArray(state.completedQuestIds) ||
-    !state.votes ||
-    typeof state.votes !== "object"
-  )
-    throw new Error("Stored game snapshot failed validation");
+  parseGameState(value);
+}
+
+function assertWorldState(value: unknown): asserts value is WorldState {
+  const parsed = WorldStateSchema.safeParse(value);
+  if (!parsed.success)
+    throw new Error(
+      `Stored world snapshot failed validation: ${parsed.error.issues[0]?.path.join(".") ?? "unknown field"}`,
+    );
 }
 
 function eventId(guildId: string, aggregate: string, sequence: number) {
@@ -102,24 +119,32 @@ export class PostgresGameRepository implements GameRepository {
       throw new Error(
         `Game snapshot is not initialized for guild ${this.guildId}`,
       );
-    assertGameState(row.state);
-    return structuredClone(row.state);
+    return structuredClone(parseGameState(row.state));
   }
 
   async save(
     state: GameState,
     events: DomainEvent[],
     expectedSequence: number,
-  ) {
+    idempotencyKey?: string,
+  ): Promise<"saved" | "duplicate"> {
     if (state.sequence !== expectedSequence + events.length)
       throw new Error("Game snapshot sequence does not match its events");
-    await this.db.transaction(async (tx) => {
+    return this.db.transaction(async (tx): Promise<"saved" | "duplicate"> => {
       const [guild] = await tx
         .select({ id: guilds.id })
         .from(guilds)
         .where(eq(guilds.id, this.guildId))
         .for("update");
       if (!guild) throw new Error(`Guild ${this.guildId} does not exist`);
+      if (idempotencyKey) {
+        const inserted = await tx
+          .insert(twitchEventInbox)
+          .values({ id: idempotencyKey, guildId: this.guildId })
+          .onConflictDoNothing()
+          .returning({ id: twitchEventInbox.id });
+        if (inserted.length === 0) return "duplicate";
+      }
       const [latest] = await tx
         .select({ sequence: gameSnapshots.sequence })
         .from(gameSnapshots)
@@ -129,7 +154,7 @@ export class PostgresGameRepository implements GameRepository {
         .for("update");
       if (!latest || latest.sequence !== expectedSequence)
         throw new ConcurrentAggregateUpdateError("game");
-      if (events.length === 0) return;
+      if (events.length === 0) return "saved";
       for (const [index, event] of events.entries()) {
         const sequence = expectedSequence + index + 1;
         if (event.sequence !== sequence)
@@ -143,27 +168,66 @@ export class PostgresGameRepository implements GameRepository {
           type: event.type,
           payload: event,
         });
-        const notification = RealtimeEventSchema.parse({
+        if (
+          event.type === "quest.started" ||
+          event.type === "encounter.resolved"
+        )
+          await tx.insert(outbox).values({
+            id: `${id}:world`,
+            eventId: id,
+            channel: "game.world-event",
+            payload: event,
+          });
+      }
+      assertGameState(state);
+      const lastEventId = eventId(this.guildId, "game", state.sequence);
+      await tx.insert(outbox).values({
+        id: `${lastEventId}:socket`,
+        eventId: lastEventId,
+        channel: "game.snapshot",
+        payload: RealtimeEventSchema.parse({
           type: "game.snapshot",
           version: 1,
           sequence: state.sequence,
           state,
-        });
-        await tx.insert(outbox).values({
-          id: `${id}:socket`,
-          eventId: id,
-          channel: "game.snapshot",
-          payload: notification,
-        });
-      }
-      assertGameState(state);
+        }),
+      });
       await tx.insert(gameSnapshots).values({
         id: eventId(this.guildId, "game-snapshot", state.sequence),
         guildId: this.guildId,
         sequence: state.sequence,
         state,
       });
+      return "saved";
     });
+  }
+
+  async genesis(): Promise<GameState> {
+    const [row] = await this.db
+      .select({ state: gameSnapshots.state })
+      .from(gameSnapshots)
+      .where(eq(gameSnapshots.guildId, this.guildId))
+      .orderBy(asc(gameSnapshots.sequence))
+      .limit(1);
+    if (!row)
+      throw new Error(
+        `Game genesis is not initialized for guild ${this.guildId}`,
+      );
+    return structuredClone(parseGameState(row.state));
+  }
+
+  async hasProcessed(idempotencyKey: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: twitchEventInbox.id })
+      .from(twitchEventInbox)
+      .where(
+        and(
+          eq(twitchEventInbox.id, idempotencyKey),
+          eq(twitchEventInbox.guildId, this.guildId),
+        ),
+      )
+      .limit(1);
+    return Boolean(row);
   }
 
   async readEventsAfter(sequence: number): Promise<DomainEvent[]> {
@@ -178,7 +242,9 @@ export class PostgresGameRepository implements GameRepository {
         ),
       )
       .orderBy(asc(domainEvents.sequence));
-    return rows.map((row) => row.payload as DomainEvent);
+    return rows.map(
+      (row) => GameDomainEventSchema.parse(row.payload) as DomainEvent,
+    );
   }
 }
 
@@ -186,6 +252,7 @@ export class PostgresWorldRepository implements WorldRepository {
   constructor(private readonly db: PersistenceDatabase) {}
 
   async create(state: WorldState) {
+    assertWorldState(state);
     await this.db.transaction(async (tx) => {
       await tx
         .insert(guilds)
@@ -216,7 +283,9 @@ export class PostgresWorldRepository implements WorldRepository {
       .from(worldSnapshots)
       .where(eq(worldSnapshots.guildId, worldId))
       .limit(1);
-    return row?.genesis as WorldState | undefined;
+    if (!row) return undefined;
+    assertWorldState(row.genesis);
+    return structuredClone(row.genesis);
   }
 
   async load(worldId: string): Promise<WorldState | undefined> {
@@ -225,7 +294,9 @@ export class PostgresWorldRepository implements WorldRepository {
       .from(worldSnapshots)
       .where(eq(worldSnapshots.guildId, worldId))
       .limit(1);
-    return row?.state as WorldState | undefined;
+    if (!row) return undefined;
+    assertWorldState(row.state);
+    return structuredClone(row.state);
   }
 
   async save(
@@ -233,6 +304,7 @@ export class PostgresWorldRepository implements WorldRepository {
     events: WorldEvent[],
     expectedSequence: number,
   ) {
+    assertWorldState(state);
     if (state.sequence !== expectedSequence + events.length)
       throw new Error("World snapshot sequence does not match its events");
     await this.db.transaction(async (tx) => {
@@ -287,7 +359,7 @@ export class PostgresWorldRepository implements WorldRepository {
         ),
       )
       .orderBy(asc(domainEvents.sequence));
-    return rows.map((row) => row.payload as WorldEvent);
+    return rows.map((row) => WorldEventSchema.parse(row.payload) as WorldEvent);
   }
 }
 

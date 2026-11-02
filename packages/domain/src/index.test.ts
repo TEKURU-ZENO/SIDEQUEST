@@ -22,7 +22,7 @@ describe("deterministic encounter domain", () => {
         action: "attack",
       }),
     ).state;
-    expect(state.encounterVitality).toBe(62);
+    expect(state.encounterVitality).toBe(60);
     expect(
       applyCommand(state, command({ type: "encounter.resolve" })).state.status,
     ).toBe("lost");

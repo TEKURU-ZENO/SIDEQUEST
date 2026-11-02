@@ -9,11 +9,14 @@ import cors from "cors";
 import { Server } from "socket.io";
 import {
   GameApplication,
+  type GameDomainCommand,
+  type GameDomainEvent,
   InMemoryGameRepository,
   InMemoryWorldRepository,
   WorldApplication,
 } from "@sidequest/application";
 import {
+  GameDomainEventSchema,
   GameCommandSchema,
   RealtimeEventSchema,
   WorldCommandSchema,
@@ -113,7 +116,14 @@ const narrativeGenerator = createNarrativeGenerator(
   intelligenceModel,
 );
 const outboxPublisher = persistence
-  ? new PostgresOutboxPublisher(persistence.db, (channel, payload) => {
+  ? new PostgresOutboxPublisher(persistence.db, async (channel, payload) => {
+      if (channel === "game.world-event") {
+        await world.recordGameEvent(
+          GUILD_ID,
+          GameDomainEventSchema.parse(payload) as GameDomainEvent,
+        );
+        return;
+      }
       io.emit(channel, payload);
     })
   : undefined;
@@ -127,9 +137,13 @@ export const twitchEventSub =
           if (!action || action.channelId !== activeBroadcasterId) return;
           if (!chatRateLimiter.allow(action.channelId, action.playerId)) return;
           try {
-            const result = await game.dispatch(action.command);
-            if (outboxPublisher) await publishOutbox();
-            else io.emit("game.snapshot", gameSnapshot(result.state));
+            const result = await game.dispatch(
+              toDomainCommand(action.command),
+              {
+                idempotencyKey: action.eventId,
+              },
+            );
+            await publishGameResult(result);
           } catch (error) {
             logger.warn(
               { error, playerId: action.playerId },
@@ -198,6 +212,22 @@ function gameSnapshot(state: Awaited<ReturnType<typeof game.snapshot>>) {
     state,
   });
 }
+function toDomainCommand(
+  command: ReturnType<typeof GameCommandSchema.parse>,
+): GameDomainCommand {
+  switch (command.type) {
+    case "quest.launch":
+      return {
+        type: "quest.launch",
+        questId: command.questId,
+        ...(command.questContent ? { questContent: command.questContent } : {}),
+      };
+    case "player.join":
+    case "encounter.act":
+    case "encounter.resolve":
+      return command;
+  }
+}
 function worldSnapshot(state: Awaited<ReturnType<typeof world.snapshot>>) {
   return RealtimeEventSchema.parse({
     type: "world.snapshot",
@@ -213,6 +243,20 @@ async function publishOutbox() {
   } catch (error) {
     logger.error({ error }, "Outbox delivery deferred for retry");
   }
+}
+async function publishGameResult(result: {
+  state: Awaited<ReturnType<typeof game.snapshot>>;
+  events: GameDomainEvent[];
+}) {
+  if (result.events.length === 0) return;
+  if (outboxPublisher) {
+    await publishOutbox();
+    return;
+  }
+  for (const event of result.events)
+    await world.recordGameEvent(GUILD_ID, event);
+  io.emit("game.snapshot", gameSnapshot(result.state));
+  io.emit("world.snapshot", worldSnapshot(await world.snapshot(GUILD_ID)));
 }
 
 app.get("/health/live", (_request, response) =>
@@ -318,6 +362,10 @@ app.get("/api/game/events", async (request, response) => {
     });
   return response.json({ events: await game.readEventsAfter(after) });
 });
+app.get("/api/game/verify", async (_request, response) => {
+  await ready;
+  return response.json(await game.verify());
+});
 app.post("/api/game/commands", async (request, response) => {
   await ready;
   const parsed = GameCommandSchema.safeParse(request.body);
@@ -331,9 +379,8 @@ app.post("/api/game/commands", async (request, response) => {
       requestId: response.locals.requestId as string,
     });
   try {
-    const result = await game.dispatch(parsed.data);
-    if (outboxPublisher) await publishOutbox();
-    else io.emit("game.snapshot", gameSnapshot(result.state));
+    const result = await game.dispatch(toDomainCommand(parsed.data));
+    await publishGameResult(result);
     return response.json({
       ok: true,
       data: result,

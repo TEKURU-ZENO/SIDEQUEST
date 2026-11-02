@@ -117,3 +117,17 @@ export const twitchConnections = pgTable(
     uniqueIndex("twitch_connections_broadcaster_uq").on(table.broadcasterId),
   ],
 );
+
+export const twitchEventInbox = pgTable(
+  "twitch_event_inbox",
+  {
+    id: text("id").primaryKey(),
+    guildId: text("guild_id")
+      .notNull()
+      .references(() => guilds.id),
+    receivedAt: timestamp("received_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("twitch_event_inbox_received_at_idx").on(table.receivedAt)],
+);

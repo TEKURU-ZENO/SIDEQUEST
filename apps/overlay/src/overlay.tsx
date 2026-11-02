@@ -4,8 +4,10 @@ import { io } from "socket.io-client";
 type Snapshot = {
   status: string;
   questId: string;
+  completedQuestIds: string[];
   questContent?: { title: string; premise: string; objectives: string[] };
   encounterVitality: number;
+  partyVitality: number;
   objectiveProgress: number;
   players: Record<string, unknown>;
 };
@@ -13,6 +15,7 @@ type SnapshotEnvelope = { sequence: number; state: Snapshot };
 const fallback: Snapshot = {
   status: "ready",
   questId: "ember-vault",
+  completedQuestIds: [],
   questContent: {
     title: "The Ember Vault",
     premise: "Gather the ember seals before the Ash Warden wakes.",
@@ -23,6 +26,7 @@ const fallback: Snapshot = {
     ],
   },
   encounterVitality: 68,
+  partyVitality: 100,
   objectiveProgress: 0,
   players: {},
 };
@@ -100,6 +104,9 @@ export function Overlay() {
       .replace(/\b\w/g, (letter) => letter.toUpperCase());
   const enemy =
     objectives.at(-1)?.replace(/^Defeat the /i, "encounter") ?? "encounter";
+  const chapterNumber =
+    state.completedQuestIds.length +
+    (state.status === "active" || state.status === "ready" ? 1 : 0);
   return (
     <main
       className={`overlay-wrap ${compact ? "compact" : ""}`}
@@ -120,7 +127,7 @@ export function Overlay() {
             </span>
           </div>
           <div className="chapter">
-            CHAPTER · {state.questId.toUpperCase().replaceAll("-", " ")}
+            CHAPTER {String(chapterNumber).padStart(2, "0")}
           </div>
           <div className="title">{title}</div>
           <div className="desc">
@@ -132,6 +139,13 @@ export function Overlay() {
           </div>
           <div className="bar">
             <i style={{ width: `${state.encounterVitality}%` }} />
+          </div>
+          <div className="progress-head party-progress-head">
+            <span>PARTY VITALITY</span>
+            <span>{state.partyVitality}%</span>
+          </div>
+          <div className="bar party-bar">
+            <i style={{ width: `${state.partyVitality}%` }} />
           </div>
           <div className="objectives">
             {objectives.map((objective, index) => (

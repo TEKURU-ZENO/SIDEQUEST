@@ -4,9 +4,9 @@
 
 SIDEQUEST lets Twitch creators turn their audience into a persistent collaborative community through shared adventures, deterministic encounters, adaptive storytelling and collective progression. The world owns history, the game engine owns rules, AI proposes and narrates experiences, and Twitch is the first platform adapter.
 
-## Current milestone: Phase 7 — Reliability and Operational Maturity
+## Current milestone: Phase 0.2 — Gameplay Integrity and World Integration
 
-Phases 1–5 established deterministic encounters, the living-world aggregate, PostgreSQL repositories, Twitch OAuth/EventSub, bounded AI proposal and recap services, and snapshot recovery. Phase 6 connects creator-approved quest proposals to launch events and the OBS overlay, with configurable hosted API origins and layout. Phase 7 adds readiness probes, safe request errors, secret redaction, and graceful shutdown. The in-memory adapter remains available when `DATABASE_URL` is unset. Production API startup remains disabled until authenticated streamer and overlay sessions are implemented. The original prototype is preserved in the `prototype-v1` Git tag. No Twitch credentials or AI key are required for local development.
+The Phase 0.1 engineering audit found gameplay integrity gaps despite the later feature slices. This milestone repairs role effects, consecutive encounter state, game replay, durable Twitch deduplication, and gameplay-to-world history before Phase 0 can be accepted. The in-memory adapter remains available when `DATABASE_URL` is unset. Production API startup remains disabled until authenticated streamer and overlay sessions are implemented. The original prototype is preserved in the `prototype-v1` Git tag. No Twitch credentials or AI key are required for local development.
 
 ## Prerequisites and setup
 
@@ -76,7 +76,9 @@ Capture the preserved pre-migration UI with `pnpm capture:prototype`. The archiv
 
 ## Phase plan
 
-0. Architecture foundation and prototype migration.
+0.1. Architecture foundation and prototype migration (audit found Phase 0 not accepted).
+0.2. Gameplay integrity and world integration (in progress; see [acceptance tracker](docs/operations/phase-0.2-progress.md)).
+
 1. Persistent world aggregate: guild identity, member progression, adventures, chapters, decisions, artifacts, relationships and append-only history; deterministic encounters and replayable simulations.
 2. Persistent guilds, identities, progression and verified world history (domain and application foundation implemented).
 3. PostgreSQL repositories, transactional event/outbox and realtime recovery (in progress).
@@ -85,7 +87,7 @@ Capture the preserved pre-migration UI with `pnpm capture:prototype`. The archiv
 6. Creator controls and production OBS integration (initial proposal approval and configurable overlay slice implemented; production deployment remains gated).
 7. Creator validation, reliability, security and operational maturity (health probes, graceful shutdown and safe request errors implemented; public launch gates remain open).
 
-Phase 1 began before all Phase 0 acceptance gaps were closed, at the user's direction. Phase 0 remains open; production authentication, live Twitch validation, live AI provider validation and full frontend parity remain future acceptance work. See the [Phase 7 production readiness checklist](docs/operations/production-readiness.md) for deployment gates and probe behavior.
+Phase 1 began before all Phase 0 acceptance gaps were closed. Phase 0 remains open; production authentication, live Twitch validation, live AI provider validation, PostgreSQL integration execution and full frontend parity remain acceptance work. See the [Phase 7 production readiness checklist](docs/operations/production-readiness.md) for deployment gates and probe behavior.
 
 ### Phase 5 API slice
 

@@ -92,6 +92,16 @@ body {
   background: linear-gradient(90deg, #df8977, #f0bb81);
   transition: width 0.3s;
 }
+.party-progress-head {
+  margin-top: 12px;
+  margin-bottom: 6px;
+}
+.party-bar {
+  height: 4px;
+}
+.party-bar i {
+  background: linear-gradient(90deg, #c48b75, #e2bc93);
+}
 .objectives {
   display: grid;
   gap: 9px;

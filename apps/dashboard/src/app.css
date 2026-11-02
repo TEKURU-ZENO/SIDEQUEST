@@ -849,6 +849,18 @@ body {
   border-radius: 9px;
   transition: width 0.35s;
 }
+.party-vitality-row {
+  margin-top: 13px;
+}
+.party-vitality-track {
+  height: 4px;
+}
+.party-vitality-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #c48b75, #e2bc93);
+  transition: width 0.3s;
+}
 .boss-note {
   font: italic 10px var(--sans);
   color: #adb6c0;

@@ -2,12 +2,16 @@ import { describe, expect, it } from "vitest";
 import { GameApplication, InMemoryGameRepository } from "./index.js";
 
 describe("Phase 0.1 application acceptance probes", () => {
-  it("rejects malformed commands without changing authoritative state", async () => {
+  it("rejects invalid gameplay transitions without changing authoritative state", async () => {
     const repository = new InMemoryGameRepository();
     const application = new GameApplication(repository);
     const before = await application.snapshot();
     await expect(
-      application.dispatch({ type: "encounter.act", action: "arbitrary" }),
+      application.dispatch({
+        type: "encounter.act",
+        action: "attack",
+        playerId: "unjoined",
+      }),
     ).rejects.toThrow();
     expect(await application.snapshot()).toEqual(before);
   });
@@ -52,7 +56,23 @@ describe("Phase 0.1 application acceptance probes", () => {
     ]);
     const state = await application.snapshot();
     expect(state.actions).toBe(2);
-    expect(state.encounterVitality).toBe(56);
+    expect(state.encounterVitality).toBe(52);
     expect(state.sequence).toBe(4);
+  });
+
+  it("deduplicates accepted Twitch-style message IDs and verifies replayed state", async () => {
+    const application = new GameApplication(new InMemoryGameRepository());
+    const first = await application.dispatch(
+      { type: "quest.launch", questId: "inbox-quest" },
+      { idempotencyKey: "event-message-1" },
+    );
+    const duplicate = await application.dispatch(
+      { type: "quest.launch", questId: "inbox-quest" },
+      { idempotencyKey: "event-message-1" },
+    );
+    expect(first.events).toHaveLength(1);
+    expect(duplicate.events).toEqual([]);
+    expect(duplicate.state.sequence).toBe(1);
+    expect(await application.verify()).toMatchObject({ valid: true });
   });
 });

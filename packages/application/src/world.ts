@@ -4,6 +4,7 @@ import {
   createWorld,
   verifyWorldHistory,
   type WorldCommand,
+  type DomainEvent,
   type WorldEvent,
   type WorldState,
 } from "@sidequest/domain";
@@ -98,6 +99,57 @@ export class WorldApplication {
   async history(worldId: string): Promise<WorldEvent[]> {
     await this.requireWorld(worldId);
     return this.repository.readHistory(worldId);
+  }
+
+  /** Applies game lifecycle facts to persistent world memory; repeats are idempotent. */
+  async recordGameEvent(worldId: string, event: DomainEvent): Promise<void> {
+    if (event.type === "quest.started") {
+      const state = await this.snapshot(worldId);
+      const adventureId = `game-${event.questId}`;
+      if (state.adventures.some((adventure) => adventure.id === adventureId))
+        return;
+      await this.dispatch(worldId, {
+        type: "world.adventure.start",
+        adventureId,
+        title: event.questContent?.title ?? event.questId,
+      });
+      return;
+    }
+    if (event.type !== "encounter.resolved") return;
+
+    const adventureId = `game-${event.questId}`;
+    let state = await this.snapshot(worldId);
+    let adventure = state.adventures.find((item) => item.id === adventureId);
+    if (!adventure) {
+      await this.dispatch(worldId, {
+        type: "world.adventure.start",
+        adventureId,
+        title: event.questContent?.title ?? event.questId,
+      });
+      state = await this.snapshot(worldId);
+      adventure = state.adventures.find((item) => item.id === adventureId);
+    }
+    if (!adventure || adventure.status === "completed") return;
+    const chapterId = `chapter-${event.questId}`;
+    if (!adventure.chapters.some((chapter) => chapter.id === chapterId)) {
+      const consequence = (
+        event.questContent?.narrativeHook ??
+        (event.outcome === "won"
+          ? "The guild's victory becomes part of its shared history."
+          : "The guild regroups and carries the lesson into its next chapter.")
+      ).slice(0, 160);
+      await this.dispatch(worldId, {
+        type: "world.chapter.record",
+        chapterId,
+        title: event.questContent?.title ?? event.questId,
+        outcome: event.outcome,
+        consequence,
+      });
+    }
+    await this.dispatch(worldId, {
+      type: "world.adventure.complete",
+      outcome: event.outcome,
+    });
   }
 
   async verify(worldId: string) {

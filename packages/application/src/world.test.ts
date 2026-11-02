@@ -88,4 +88,45 @@ describe("world application use cases", () => {
     expect((await application.snapshot("world-1")).sequence).toBe(2);
     expect(await application.verify("world-1")).toMatchObject({ valid: true });
   });
+
+  it("records game starts and outcomes in world history idempotently", async () => {
+    const application = new WorldApplication(new InMemoryWorldRepository());
+    await application.createWorld("world-1", "Lantern Guild");
+    const started = {
+      type: "quest.started" as const,
+      sequence: 1,
+      questId: "game-quest-1",
+      questContent: {
+        title: "The Ember Vault",
+        premise:
+          "An ancient vault stirs below the old city as its warden wakes.",
+        objectives: ["Gather seals", "Hold the passage"],
+        difficulty: "moderate" as const,
+        rewardXp: 200,
+        narrativeHook: "The guild's courage will be remembered in the vault.",
+      },
+    };
+    const resolved = {
+      type: "encounter.resolved" as const,
+      sequence: 5,
+      questId: "game-quest-1",
+      outcome: "won" as const,
+      questContent: started.questContent,
+      encounterVitality: 0,
+      partyVitality: 80,
+    };
+    await application.recordGameEvent("world-1", started);
+    await application.recordGameEvent("world-1", resolved);
+    await application.recordGameEvent("world-1", started);
+    await application.recordGameEvent("world-1", resolved);
+
+    const snapshot = await application.snapshot("world-1");
+    expect(snapshot.adventures).toHaveLength(1);
+    expect(snapshot.adventures[0]).toMatchObject({
+      status: "completed",
+      outcome: "won",
+      chapters: [{ title: "The Ember Vault", outcome: "won" }],
+    });
+    expect(await application.verify("world-1")).toMatchObject({ valid: true });
+  });
 });

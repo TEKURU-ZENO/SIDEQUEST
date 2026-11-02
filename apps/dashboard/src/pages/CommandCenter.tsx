@@ -87,19 +87,85 @@ export function CommandCenter() {
   const [generating, setGenerating] = useState(false);
   const [launched, setLaunched] = useState(false);
   const [vitality, setVitality] = useState(68);
+  const [partyVitality, setPartyVitality] = useState(100);
   const [party, setParty] = useState(0);
   const [actions, setActions] = useState(0);
-  const [progress, setProgress] = useState(1);
+  const [progress, setProgress] = useState(0);
+  const [worldMemory, setWorldMemory] = useState(
+    "Loading persistent world history…",
+  );
+  const [worldMemoryMeta, setWorldMemoryMeta] = useState("WORLD HISTORY");
+  const [worldChapterLabel, setWorldChapterLabel] = useState(
+    "No completed chapter yet",
+  );
+  const [worldStats, setWorldStats] = useState({
+    guildName: "SIDEQUEST Local Guild",
+    reputation: 0,
+    chapters: 0,
+    victories: 0,
+  });
   const [input, setInput] = useState("");
   const [toast, setToast] = useState("");
   const [feed, setFeed] = useState<FeedItem[]>([
     {
       name: "SIDEQUEST",
-      text: "World memory loaded: the guild spared the Mosskeeper.",
+      text: "World history will appear here when an adventure is completed.",
       role: "system",
     },
   ]);
   const [showPlan, setShowPlan] = useState(false);
+  async function refreshWorldMemory() {
+    try {
+      const [snapshotResponse, historyResponse] = await Promise.all([
+        fetch(`${API_BASE}/api/world/snapshot`),
+        fetch(`${API_BASE}/api/world/history`),
+      ]);
+      if (!snapshotResponse.ok || !historyResponse.ok)
+        throw new Error("World history is unavailable");
+      const snapshot = await snapshotResponse.json();
+      const history = (await historyResponse.json()) as {
+        events: Array<Record<string, unknown>>;
+      };
+      const chapters = history.events.filter(
+        (event) => event.type === "world.chapter.recorded",
+      );
+      const completed = snapshot.adventures.filter(
+        (adventure: { status: string }) => adventure.status === "completed",
+      );
+      setWorldStats({
+        guildName: snapshot.guild.name,
+        reputation: snapshot.guild.reputation,
+        chapters: completed.length,
+        victories: completed.filter(
+          (adventure: { outcome: string | null }) =>
+            adventure.outcome === "won",
+        ).length,
+      });
+      const latest = chapters.at(-1) as
+        | {
+            chapter?: {
+              title?: string;
+              outcome?: string;
+              consequence?: string;
+            };
+          }
+        | undefined;
+      setWorldMemory(
+        latest?.chapter
+          ? `${latest.chapter.outcome === "won" ? "Victory" : "Defeat"}: ${latest.chapter.consequence ?? latest.chapter.title ?? "Chapter recorded."}`
+          : `${snapshot.guild.name}: ${Object.keys(snapshot.members).length} members and ${snapshot.adventures.length} recorded adventures.`,
+      );
+      setWorldMemoryMeta(`${history.events.length} PERSISTED EVENTS`);
+      setWorldChapterLabel(
+        latest?.chapter?.title ?? "No completed chapter yet",
+      );
+    } catch {
+      setWorldMemory(
+        "Persistent world history is unavailable. Check the API connection.",
+      );
+      setWorldMemoryMeta("WORLD OFFLINE");
+    }
+  }
   const notify = (s: string) => {
     setToast(s);
     window.setTimeout(() => setToast(""), 2300);
@@ -112,6 +178,7 @@ export function CommandCenter() {
         const state = snapshot.state;
         setLaunched(state.status === "active");
         setVitality(state.encounterVitality);
+        setPartyVitality(state.partyVitality);
         setParty(Object.keys(state.players ?? {}).length);
         setActions(state.actions);
         setProgress(state.objectiveProgress);
@@ -119,6 +186,9 @@ export function CommandCenter() {
           setActiveQuest(state.questContent as QuestDraft);
       })
       .catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    void refreshWorldMemory();
   }, []);
   const q = activeQuest ?? quests[quest]!;
   async function dispatch(command: unknown, success: string) {
@@ -133,6 +203,7 @@ export function CommandCenter() {
         throw new Error(body.error?.message ?? "Action rejected");
       const state = body.data.state;
       setVitality(state.encounterVitality);
+      setPartyVitality(state.partyVitality);
       setParty(Object.keys(state.players).length);
       setActions(state.actions);
       setProgress(state.objectiveProgress);
@@ -148,13 +219,15 @@ export function CommandCenter() {
     }
   }
   async function launch(questToLaunch = q) {
+    const questSlug = questToLaunch.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
+    const questId = `${questSlug || "quest"}-${window.crypto.randomUUID()}`;
     const ok = await dispatch(
       {
         type: "quest.launch",
-        questId: questToLaunch.title
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-|-$/g, ""),
+        questId,
         questContent: questToLaunch,
       },
       "Quest launched — chat can join now",
@@ -214,7 +287,9 @@ export function CommandCenter() {
         } as const
       )[verb as "attack" | "heal" | "scout" | "vote" | "sabotage"];
       if (!action) {
-        notify("Try !join, !attack, !heal, !scout, !vote or !sabotage");
+        notify(
+          "Try !join, !attack, !heal, !scout, !vote assault or !vote retreat, or !sabotage",
+        );
         return;
       }
       const response = await fetch(`${API_BASE}/api/game/snapshot`);
@@ -272,23 +347,26 @@ export function CommandCenter() {
       if (!response.ok)
         throw new Error(body.error?.message ?? "Resolve failed");
       const won = body.data.state.status === "won";
+      setVitality(body.data.state.encounterVitality);
+      setPartyVitality(body.data.state.partyVitality);
+      setProgress(body.data.state.objectiveProgress);
+      void refreshWorldMemory();
       setLaunched(false);
       push({
         name: "WORLD CHRONICLER",
         text: won
-          ? "Victory. The guild wins +240 XP; the world remembers your triumph."
-          : "The guild retreats. The world has shifted while you regroup.",
+          ? "Victory recorded. The guild's new chapter is in persistent world history."
+          : "The guild retreats. Its consequence is in persistent world history.",
         role: "system",
       });
       notify(
         won
-          ? "Victory! +240 Guild XP"
+          ? "Victory — chapter saved to the guild history"
           : "Retreat — regroup and return stronger",
       );
       setQuest((quest + 1) % quests.length);
       setActiveQuest(null);
       setProposal(null);
-      setVitality(won ? 100 : 54);
     } catch (e) {
       notify(
         e instanceof Error
@@ -365,32 +443,27 @@ export function CommandCenter() {
           <section className="stats-grid">
             <article className="stat-card">
               <div className="stat-head">
-                COMMUNITY LEVEL <span className="tiny-icon violet">✳</span>
+                GUILD REPUTATION <span className="tiny-icon violet">✳</span>
               </div>
-              <div className="stat-value">04</div>
+              <div className="stat-value">{worldStats.reputation}</div>
               <div className="stat-foot">
-                <span className="accent">●</span> The Lantern Guild{" "}
-                <span className="muted">· 2,460 XP</span>
+                <span className="accent">●</span> {worldStats.guildName}
               </div>
             </article>
             <article className="stat-card">
               <div className="stat-head">
-                QUESTS COMPLETED <span className="tiny-icon gold">⚑</span>
+                CHAPTERS RECORDED <span className="tiny-icon gold">⚑</span>
               </div>
-              <div className="stat-value">12</div>
+              <div className="stat-value">{worldStats.chapters}</div>
               <div className="stat-foot">
-                <span className="green">↗ 3</span>{" "}
-                <span className="muted">this stream</span>
+                <span className="muted">Persisted adventure outcomes</span>
               </div>
             </article>
             <article className="stat-card">
               <div className="stat-head">
                 VIEWERS IN THE PARTY <span className="tiny-icon blue">♙</span>
               </div>
-              <div className="stat-value">
-                {String(party).padStart(2, "0")}
-                <span className="stat-unit">/ 24</span>
-              </div>
+              <div className="stat-value">{String(party).padStart(2, "0")}</div>
               <div className="stat-foot">
                 <span className="live-dot" />{" "}
                 <span className="muted">Active in this quest</span>
@@ -398,13 +471,14 @@ export function CommandCenter() {
             </article>
             <article className="stat-card">
               <div className="stat-head">
-                COMMUNITY STREAK <span className="tiny-icon orange">♨</span>
+                VICTORIES <span className="tiny-icon orange">♨</span>
               </div>
               <div className="stat-value">
-                03<span className="stat-unit"> wins</span>
+                {worldStats.victories}
+                <span className="stat-unit"> wins</span>
               </div>
               <div className="stat-foot">
-                <span className="muted">Best: 7 quests</span>
+                <span className="muted">From world history</span>
               </div>
             </article>
           </section>
@@ -417,7 +491,9 @@ export function CommandCenter() {
                     <span>
                       {launched ? "QUEST IN PROGRESS" : "ACTIVE QUEST"}
                     </span>
-                    <span className="chapter">CHAPTER 04</span>
+                    <span className="chapter">
+                      CHAPTER {worldStats.chapters + 1}
+                    </span>
                   </div>
                   <h2>{q.title}</h2>
                 </div>
@@ -439,8 +515,10 @@ export function CommandCenter() {
                 <div className="mountain m2" />
                 <div className="vault-symbol">⌑</div>
                 <div className="art-caption">
-                  <span className="difficulty">◆ MODERATE</span>
-                  <span>THE SUNKEN ARCHIVE</span>
+                  <span className="difficulty">
+                    ◆ {q.difficulty.toUpperCase()}
+                  </span>
+                  <span>{q.title.toUpperCase()}</span>
                 </div>
               </div>
               <div className="quest-description">{q.premise}</div>
@@ -517,10 +595,8 @@ export function CommandCenter() {
                 <div className="reward">
                   <span className="reward-icon">✧</span>
                   <span>
-                    <small>COMMUNITY REWARD</small>
-                    <b>
-                      +240 Guild XP <i>·</i> core rules reward
-                    </b>
+                    <small>WORLD HISTORY</small>
+                    <b>Outcome and consequence saved as a chapter</b>
                   </span>
                 </div>
                 <button className="resolve-btn" onClick={resolve}>
@@ -660,6 +736,16 @@ export function CommandCenter() {
               <div className="hp-track">
                 <div className="hp-fill" style={{ width: `${vitality}%` }} />
               </div>
+              <div className="hp-row party-vitality-row">
+                <span>PARTY VITALITY</span>
+                <b>{partyVitality}%</b>
+              </div>
+              <div className="hp-track party-vitality-track">
+                <div
+                  className="party-vitality-fill"
+                  style={{ width: `${partyVitality}%` }}
+                />
+              </div>
               <div className="boss-note">
                 “Little sparks… you dare enter my halls?”{" "}
                 <span>
@@ -677,16 +763,21 @@ export function CommandCenter() {
                   <div className="section-kicker">WORLD CHRONICLER</div>
                   <h3>History informs the next chapter</h3>
                 </div>
-                <span className="memory-tag">MEMORY ON</span>
+                <span className="memory-tag">{worldMemoryMeta}</span>
               </div>
-              <p>
-                The guild's last recorded choice spared the Mosskeeper. That
-                history informs the current quest; gameplay outcomes remain
-                deterministic.
-              </p>
+              <p>{worldMemory}</p>
               <div className="memory-chips">
-                <span>◈ Mosskeeper spared</span>
-                <span>↗ 3 win streak</span>
+                <span>◈ {worldChapterLabel}</span>
+                <span>
+                  ↗ Verified game history:{" "}
+                  <a
+                    href={`${API_BASE}/api/game/verify`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    inspect
+                  </a>
+                </span>
               </div>
             </article>
           </section>

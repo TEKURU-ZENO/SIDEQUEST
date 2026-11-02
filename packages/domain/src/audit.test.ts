@@ -120,7 +120,7 @@ describe("Phase 0.1 domain acceptance probes", () => {
         type: "encounter.act",
         playerId: "viewer-1",
         action: "vote",
-        target: "forest",
+        target: "assault",
       }),
     );
     const second = applyCommand(
@@ -129,14 +129,14 @@ describe("Phase 0.1 domain acceptance probes", () => {
         type: "encounter.act",
         playerId: "viewer-1",
         action: "vote",
-        target: "river",
+        target: "retreat",
       }),
     );
     expect(
       (second.state as GameState & { votes?: Record<string, string> }).votes?.[
         "viewer-1"
       ],
-    ).toBe("river");
+    ).toBe("retreat");
     expect(second.events[0]?.type).toBe("encounter.vote.cast");
   });
 

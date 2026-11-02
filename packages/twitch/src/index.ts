@@ -3,7 +3,7 @@ import { IdSchema } from "@sidequest/contracts";
 import type { GameCommand } from "@sidequest/contracts";
 
 const TwitchChatEventSchema = z.object({
-  message_id: z.string().min(1),
+  message_id: z.string().min(1).max(128),
   broadcaster_user_id: z.string().min(1),
   chatter_user_id: z.string().min(1),
   chatter_user_name: z.string().min(1),

@@ -13,6 +13,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "prettier --check src",
+    "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "pnpm build && node --env-file-if-exists=../../.env dist/migrate.js"
   },
@@ -26,6 +27,7 @@
   "devDependencies": {
     "@types/pg": "^8.15.5",
     "drizzle-kit": "^0.31.5",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
   }
 }
