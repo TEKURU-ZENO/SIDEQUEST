@@ -2,7 +2,11 @@ import type { TwitchConnectionRecord } from "@sidequest/contracts";
 import { z } from "zod";
 
 const EventSubFrameSchema = z.object({
-  metadata: z.object({ message_id: z.string(), message_type: z.string() }),
+  metadata: z.object({
+    message_id: z.string(),
+    message_type: z.string(),
+    message_timestamp: z.string().datetime().optional(),
+  }),
   payload: z.record(z.string(), z.unknown()),
 });
 
@@ -154,6 +158,14 @@ export class TwitchEventSubClient {
     }
     if (metadata.message_type !== "notification") return;
     if (this.seenMessages.has(metadata.message_id)) return;
+    const sentAt = metadata.message_timestamp
+      ? Date.parse(metadata.message_timestamp)
+      : Number.NaN;
+    const ageMs = Date.now() - sentAt;
+    // WebSocket EventSub has no webhook HMAC header. TLS authenticates Twitch;
+    // timestamp bounds and message IDs prevent stale/replayed notifications.
+    if (!Number.isFinite(sentAt) || ageMs > 10 * 60_000 || ageMs < -30_000)
+      return;
     const notification = z
       .object({
         subscription: z.object({ type: z.string() }),
@@ -165,17 +177,21 @@ export class TwitchEventSubClient {
       notification.data.subscription.type !== "channel.chat.message"
     )
       return;
+    this.rememberMessage(metadata.message_id);
     try {
       await this.options.onChatMessage(notification.data.event);
-      this.seenMessages.add(metadata.message_id);
-      if (this.seenMessages.size > 10_000) {
-        const oldest = this.seenMessages.values().next().value as
-          string | undefined;
-        if (oldest) this.seenMessages.delete(oldest);
-      }
     } catch {
+      this.seenMessages.delete(metadata.message_id);
       this.options.onStatus?.("error");
     }
+  }
+
+  private rememberMessage(messageId: string) {
+    this.seenMessages.add(messageId);
+    if (this.seenMessages.size <= 10_000) return;
+    const oldest = this.seenMessages.values().next().value as
+      string | undefined;
+    if (oldest) this.seenMessages.delete(oldest);
   }
 
   private async subscribe(sessionId: string) {

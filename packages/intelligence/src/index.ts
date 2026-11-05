@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { z } from "zod";
 import type { WorldState } from "@sidequest/domain";
+export { moderatePublicText } from "./moderation.js";
 
 export const QuestProposalSchema = z.object({
   title: z.string().trim().min(3).max(80),

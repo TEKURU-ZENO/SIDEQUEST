@@ -41,6 +41,9 @@ import { logger } from "@sidequest/observability";
 import {
   createNarrativeGenerator,
   createQuestGenerator,
+  authoredFallback,
+  authoredNarrative,
+  moderatePublicText,
   narrateOutcome,
   proposeQuest,
   summarizeWorld,
@@ -138,6 +141,20 @@ export const twitchEventSub =
         onChatMessage: async (input) => {
           const action = normalizeChatEvent(input);
           if (!action || action.channelId !== activeBroadcasterId) return;
+          const chatText = (input as { message?: { text?: unknown } })?.message
+            ?.text;
+          if (typeof chatText !== "string") return;
+          const moderation = await moderatePublicText(
+            environment.OPENAI_API_KEY,
+            chatText,
+          );
+          if (!moderation.allowed) {
+            logger.info(
+              { playerId: action.playerId, reason: moderation.reason },
+              "Twitch chat message held by moderation",
+            );
+            return;
+          }
           if (!chatRateLimiter.allow(action.channelId, action.playerId)) return;
           try {
             const result = await game.dispatch(
@@ -147,6 +164,37 @@ export const twitchEventSub =
               },
             );
             await publishGameResult(result);
+            const accepted = result.events.some(
+              (event) =>
+                event.type === "player.joined" ||
+                event.type === "encounter.action.applied",
+            );
+            if (accepted) {
+              const snapshot = await world.snapshot(GUILD_ID);
+              if (!snapshot.members[action.playerId])
+                await world.dispatch(GUILD_ID, {
+                  type: "world.member.join",
+                  memberId: action.playerId,
+                  displayName: action.displayName.slice(0, 40),
+                });
+              if (
+                result.events.some(
+                  (event) => event.type === "encounter.action.applied",
+                )
+              )
+                await world.dispatch(GUILD_ID, {
+                  type: "world.reputation.change",
+                  memberId: action.playerId,
+                  delta: 1,
+                  reason: "Participated in a guild encounter",
+                });
+              if (outboxPublisher) await publishOutbox();
+              else
+                io.emit(
+                  "world.snapshot",
+                  worldSnapshot(await world.snapshot(GUILD_ID)),
+                );
+            }
           } catch (error) {
             logger.warn(
               { error, playerId: action.playerId },
@@ -365,6 +413,61 @@ app.get("/api/game/events", async (request, response) => {
     });
   return response.json({ events: await game.readEventsAfter(after) });
 });
+app.get("/api/game/recap", async (_request, response) => {
+  await ready;
+  const events = await game.readEventsAfter(0);
+  const launch = [...events]
+    .reverse()
+    .find((event) => event.type === "quest.started");
+  if (!launch || launch.type !== "quest.started")
+    return response.json({
+      questId: null,
+      participants: 0,
+      actions: 0,
+      newMembers: 0,
+      outcome: null,
+    });
+  const sessionEvents = events.filter(
+    (event) => event.sequence >= launch.sequence,
+  );
+  const participants = new Set<string>();
+  let actions = 0;
+  let outcome: "won" | "lost" | null = null;
+  for (const event of sessionEvents) {
+    if (event.type === "player.joined") participants.add(event.playerId);
+    if (event.type === "encounter.action.applied") {
+      participants.add(event.playerId);
+      actions += 1;
+    }
+    if (event.type === "encounter.resolved") outcome = event.outcome;
+  }
+  const history = await world.history(GUILD_ID);
+  const worldStart = history.find(
+    (event) =>
+      event.type === "world.adventure.started" &&
+      event.adventureId === `game-${launch.questId}`,
+  );
+  const newMembers = worldStart
+    ? new Set(
+        history
+          .filter(
+            (event) =>
+              event.type === "world.member.joined" &&
+              event.sequence > worldStart.sequence,
+          )
+          .map((event) =>
+            event.type === "world.member.joined" ? event.memberId : "",
+          ),
+      ).size
+    : 0;
+  return response.json({
+    questId: launch.questId,
+    participants: participants.size,
+    actions,
+    newMembers,
+    outcome,
+  });
+});
 app.get("/api/game/verify", async (_request, response) => {
   await ready;
   return response.json(await game.verify());
@@ -438,6 +541,18 @@ app.post("/api/intelligence/quest-proposal", async (_request, response) => {
     questGenerator,
     summarizeWorld(await world.snapshot(GUILD_ID)),
   );
+  const text = [
+    result.content.title,
+    result.content.premise,
+    ...result.content.objectives,
+    result.content.narrativeHook,
+  ].join("\n");
+  const moderation = await moderatePublicText(environment.OPENAI_API_KEY, text);
+  if (!moderation.allowed)
+    return response.json({
+      data: authoredFallback,
+      source: "authored-fallback",
+    });
   return response.json({ data: result.content, source: result.source });
 });
 app.post("/api/intelligence/narrative", async (request, response) => {
@@ -468,6 +583,22 @@ app.post("/api/intelligence/narrative", async (request, response) => {
       ? { consequence: adventure.chapters.at(-1)!.consequence }
       : {}),
   });
+  const moderation = await moderatePublicText(
+    environment.OPENAI_API_KEY,
+    result.content.text,
+  );
+  if (!moderation.allowed) {
+    return response.json({
+      data: authoredNarrative({
+        outcome: adventure.outcome,
+        title: adventure.title,
+        ...(adventure.chapters.at(-1)?.consequence
+          ? { consequence: adventure.chapters.at(-1)!.consequence }
+          : {}),
+      }),
+      source: "authored-fallback",
+    });
+  }
   return response.json({ data: result.content, source: result.source });
 });
 app.post("/api/world/commands", async (request, response) => {

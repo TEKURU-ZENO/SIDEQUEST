@@ -103,6 +103,7 @@ export function CommandCenter() {
   const [worldChapterLabel, setWorldChapterLabel] = useState(
     "No completed chapter yet",
   );
+  const [recapLabel, setRecapLabel] = useState("No stream recap yet");
   const [worldStats, setWorldStats] = useState({
     guildName: "SIDEQUEST Local Guild",
     reputation: 0,
@@ -121,13 +122,16 @@ export function CommandCenter() {
   const [showPlan, setShowPlan] = useState(false);
   async function refreshWorldMemory() {
     try {
-      const [snapshotResponse, historyResponse] = await Promise.all([
-        fetch(`${API_BASE}/api/world/snapshot`),
-        fetch(`${API_BASE}/api/world/history`),
-      ]);
-      if (!snapshotResponse.ok || !historyResponse.ok)
+      const [snapshotResponse, historyResponse, recapResponse] =
+        await Promise.all([
+          fetch(`${API_BASE}/api/world/snapshot`),
+          fetch(`${API_BASE}/api/world/history`),
+          fetch(`${API_BASE}/api/game/recap`),
+        ]);
+      if (!snapshotResponse.ok || !historyResponse.ok || !recapResponse.ok)
         throw new Error("World history is unavailable");
       const snapshot = await snapshotResponse.json();
+      const recap = await recapResponse.json();
       const history = (await historyResponse.json()) as {
         events: Array<Record<string, unknown>>;
       };
@@ -163,6 +167,11 @@ export function CommandCenter() {
       setWorldMemoryMeta(`${history.events.length} PERSISTED EVENTS`);
       setWorldChapterLabel(
         latest?.chapter?.title ?? "No completed chapter yet",
+      );
+      setRecapLabel(
+        recap.questId
+          ? `${recap.participants} participants · ${recap.actions} actions · ${recap.newMembers} new members${recap.outcome ? ` · ${recap.outcome}` : " · in progress"}`
+          : "No stream recap yet",
       );
     } catch {
       setWorldMemory(
@@ -778,6 +787,7 @@ export function CommandCenter() {
               <p>{worldMemory}</p>
               <div className="memory-chips">
                 <span>◈ {worldChapterLabel}</span>
+                <span>✧ {recapLabel}</span>
                 <span>
                   ↗ Verified game history:{" "}
                   <a
