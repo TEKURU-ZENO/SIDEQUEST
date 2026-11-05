@@ -32,9 +32,12 @@ import { EncryptedTwitchConnectionStore } from "@sidequest/persistence";
 import {
   ChatCommandRateLimiter,
   InMemoryTwitchConnectionStore,
+  normalizeChannelPointRedemption,
   normalizeChatEvent,
   TwitchEventSubClient,
   TwitchOAuthService,
+  updateChannelPointRedemption,
+  type EncounterAction,
 } from "@sidequest/twitch";
 import { loadEnvironment } from "@sidequest/config";
 import { logger } from "@sidequest/observability";
@@ -64,6 +67,9 @@ if (
 
 const GUILD_ID = "sidequest-local";
 const GUILD_NAME = "SIDEQUEST Local Guild";
+const twitchRewardActions = JSON.parse(
+  environment.TWITCH_CHANNEL_POINT_REWARDS,
+) as Record<string, EncounterAction>;
 const databaseConnection = environment.DATABASE_URL
   ? createPersistenceDatabase(environment.DATABASE_URL)
   : undefined;
@@ -95,6 +101,12 @@ const twitchOAuth =
           clientSecret: environment.TWITCH_CLIENT_SECRET,
           redirectUri: environment.TWITCH_REDIRECT_URI,
           guildId: GUILD_ID,
+          scopes: [
+            "user:read:chat",
+            ...(Object.keys(twitchRewardActions).length
+              ? ["channel:manage:redemptions"]
+              : []),
+          ],
         },
         twitchStore,
       )
@@ -164,37 +176,13 @@ export const twitchEventSub =
               },
             );
             await publishGameResult(result);
-            const accepted = result.events.some(
-              (event) =>
-                event.type === "player.joined" ||
-                event.type === "encounter.action.applied",
+            await persistViewerParticipation(
+              action.playerId,
+              action.displayName,
+              result.events.some(
+                (event) => event.type === "encounter.action.applied",
+              ),
             );
-            if (accepted) {
-              const snapshot = await world.snapshot(GUILD_ID);
-              if (!snapshot.members[action.playerId])
-                await world.dispatch(GUILD_ID, {
-                  type: "world.member.join",
-                  memberId: action.playerId,
-                  displayName: action.displayName.slice(0, 40),
-                });
-              if (
-                result.events.some(
-                  (event) => event.type === "encounter.action.applied",
-                )
-              )
-                await world.dispatch(GUILD_ID, {
-                  type: "world.reputation.change",
-                  memberId: action.playerId,
-                  delta: 1,
-                  reason: "Participated in a guild encounter",
-                });
-              if (outboxPublisher) await publishOutbox();
-              else
-                io.emit(
-                  "world.snapshot",
-                  worldSnapshot(await world.snapshot(GUILD_ID)),
-                );
-            }
           } catch (error) {
             logger.warn(
               { error, playerId: action.playerId },
@@ -202,6 +190,79 @@ export const twitchEventSub =
             );
           }
         },
+        ...(Object.keys(twitchRewardActions).length
+          ? {
+              onChannelPointRedemption: async (input: unknown) => {
+                const redemption = normalizeChannelPointRedemption(
+                  input,
+                  twitchRewardActions,
+                );
+                if (!redemption || redemption.channelId !== activeBroadcasterId)
+                  return;
+                let gameCommitted = false;
+                const connection = await twitchOAuth.getValidConnection();
+                try {
+                  const current = await game.snapshot();
+                  if (!current.players[redemption.playerId]) {
+                    const joined = await game.dispatch(
+                      {
+                        type: "player.join",
+                        playerId: redemption.playerId,
+                        role: redemption.role,
+                      },
+                      { idempotencyKey: `${redemption.eventId}:join` },
+                    );
+                    await publishGameResult(joined);
+                  } else if (
+                    current.players[redemption.playerId]!.role !==
+                    redemption.role
+                  ) {
+                    throw new Error(
+                      `This reward requires the ${redemption.role} role.`,
+                    );
+                  }
+                  const result = await game.dispatch(redemption.command, {
+                    idempotencyKey: `${redemption.eventId}:action`,
+                  });
+                  gameCommitted = true;
+                  await publishGameResult(result);
+                  await persistViewerParticipation(
+                    redemption.playerId,
+                    redemption.displayName,
+                    result.events.some(
+                      (event) => event.type === "encounter.action.applied",
+                    ),
+                  );
+                  await updateChannelPointRedemption({
+                    clientId: environment.TWITCH_CLIENT_ID!,
+                    connection,
+                    rewardId: redemption.rewardId,
+                    redemptionId: redemption.eventId,
+                    status: "FULFILLED",
+                  });
+                } catch (error) {
+                  logger.warn(
+                    { error, redemptionId: redemption.eventId },
+                    "Twitch channel point action was rejected",
+                  );
+                  try {
+                    await updateChannelPointRedemption({
+                      clientId: environment.TWITCH_CLIENT_ID!,
+                      connection,
+                      rewardId: redemption.rewardId,
+                      redemptionId: redemption.eventId,
+                      status: gameCommitted ? "FULFILLED" : "CANCELED",
+                    });
+                  } catch (updateError) {
+                    logger.error(
+                      { error: updateError, redemptionId: redemption.eventId },
+                      "Unable to finalize Twitch channel point redemption",
+                    );
+                  }
+                }
+              },
+            }
+          : {}),
         onStatus: (status) =>
           logger.info({ status }, "Twitch EventSub status changed"),
       })
@@ -308,6 +369,29 @@ async function publishGameResult(result: {
     await world.recordGameEvent(GUILD_ID, event);
   io.emit("game.snapshot", gameSnapshot(result.state));
   io.emit("world.snapshot", worldSnapshot(await world.snapshot(GUILD_ID)));
+}
+
+async function persistViewerParticipation(
+  playerId: string,
+  displayName: string,
+  contributed: boolean,
+) {
+  const snapshot = await world.snapshot(GUILD_ID);
+  if (!snapshot.members[playerId])
+    await world.dispatch(GUILD_ID, {
+      type: "world.member.join",
+      memberId: playerId,
+      displayName: displayName.slice(0, 40),
+    });
+  if (contributed)
+    await world.dispatch(GUILD_ID, {
+      type: "world.reputation.change",
+      memberId: playerId,
+      delta: 1,
+      reason: "Participated in a guild encounter",
+    });
+  if (outboxPublisher) await publishOutbox();
+  else io.emit("world.snapshot", worldSnapshot(await world.snapshot(GUILD_ID)));
 }
 
 app.get("/health/live", (_request, response) =>

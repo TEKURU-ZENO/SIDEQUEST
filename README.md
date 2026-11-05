@@ -31,6 +31,8 @@ PostgreSQL writes domain events, snapshots and realtime outbox rows in one trans
 
 To enable Twitch locally, register `http://localhost:4000/auth/twitch/callback` as the app redirect URI, then set `TWITCH_CLIENT_ID` and `TWITCH_CLIENT_SECRET` in `.env`. With PostgreSQL enabled, also set `TWITCH_TOKEN_ENCRYPTION_KEY` to a fresh 32-byte key represented as 64 hexadecimal characters. Open `http://localhost:4000/auth/twitch` to connect the broadcaster. Twitch credentials and tokens stay on the backend; do not expose them in the dashboard or overlay.
 
+Optional Twitch Channel Points actions are configured with `TWITCH_CHANNEL_POINT_REWARDS`, a JSON map from custom reward UUIDs to `attack`, `heal`, `scout`, `vote`, or `sabotage`. When enabled, SIDEQUEST requests `channel:manage:redemptions` so it can fulfill successful actions and cancel rejected ones. See the [Channel Points setup guide](docs/integrations/twitch-channel-points.md). Use only rewards that fit the corresponding game role; chat and reward actions still obey encounter limits.
+
 `.env` is ignored by Git; keep credentials there and never commit them. The production repository remains unavailable until authentication is implemented.
 
 Useful commands:

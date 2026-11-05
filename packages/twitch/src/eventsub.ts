@@ -14,6 +14,7 @@ export interface TwitchEventSubOptions {
   clientId: string;
   connection: () => Promise<TwitchConnectionRecord>;
   onChatMessage: (event: unknown) => Promise<void>;
+  onChannelPointRedemption?: (event: unknown) => Promise<void>;
   onStatus?: (
     status: "connecting" | "connected" | "disconnected" | "error",
   ) => void;
@@ -172,14 +173,18 @@ export class TwitchEventSubClient {
         event: z.unknown(),
       })
       .safeParse(payload);
-    if (
-      !notification.success ||
-      notification.data.subscription.type !== "channel.chat.message"
-    )
-      return;
+    if (!notification.success) return;
+    const eventHandler =
+      notification.data.subscription.type === "channel.chat.message"
+        ? this.options.onChatMessage
+        : notification.data.subscription.type ===
+            "channel.channel_points_custom_reward_redemption.add"
+          ? this.options.onChannelPointRedemption
+          : undefined;
+    if (!eventHandler) return;
     this.rememberMessage(metadata.message_id);
     try {
-      await this.options.onChatMessage(notification.data.event);
+      await eventHandler(notification.data.event);
     } catch {
       this.seenMessages.delete(metadata.message_id);
       this.options.onStatus?.("error");
@@ -196,9 +201,12 @@ export class TwitchEventSubClient {
 
   private async subscribe(sessionId: string) {
     const connection = await this.options.connection();
-    const response = await this.request(
-      "https://api.twitch.tv/helix/eventsub/subscriptions",
-      {
+    const create = async (
+      type: string,
+      version: string,
+      condition: Record<string, string>,
+    ) =>
+      this.request("https://api.twitch.tv/helix/eventsub/subscriptions", {
         method: "POST",
         headers: {
           authorization: `Bearer ${connection.accessToken}`,
@@ -206,20 +214,26 @@ export class TwitchEventSubClient {
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          type: "channel.chat.message",
-          version: "1",
-          condition: {
-            broadcaster_user_id: connection.broadcasterId,
-            user_id: connection.broadcasterId,
-          },
+          type,
+          version,
+          condition,
           transport: { method: "websocket", session_id: sessionId },
         }),
-      },
-    );
-    if (!response.ok)
-      throw new Error(
-        `Unable to subscribe to Twitch chat (${response.status})`,
+      });
+    const chat = await create("channel.chat.message", "1", {
+      broadcaster_user_id: connection.broadcasterId,
+      user_id: connection.broadcasterId,
+    });
+    if (!chat.ok)
+      throw new Error(`Unable to subscribe to Twitch chat (${chat.status})`);
+    if (this.options.onChannelPointRedemption) {
+      const rewards = await create(
+        "channel.channel_points_custom_reward_redemption.add",
+        "1",
+        { broadcaster_user_id: connection.broadcasterId },
       );
+      if (!rewards.ok) this.options.onStatus?.("error");
+    }
   }
 
   private armWatchdog() {

@@ -12,6 +12,28 @@ const EnvironmentSchema = z
     DATABASE_URL: z.string().optional(),
     TWITCH_CLIENT_ID: z.string().optional(),
     TWITCH_CLIENT_SECRET: z.string().optional(),
+    TWITCH_CHANNEL_POINT_REWARDS: z
+      .string()
+      .default("{}")
+      .refine((value) => {
+        try {
+          const parsed: unknown = JSON.parse(value);
+          return (
+            parsed !== null &&
+            typeof parsed === "object" &&
+            !Array.isArray(parsed) &&
+            Object.entries(parsed).every(
+              ([id, action]) =>
+                /^[\da-f-]{36}$/i.test(id) &&
+                ["attack", "heal", "scout", "vote", "sabotage"].includes(
+                  String(action),
+                ),
+            )
+          );
+        } catch {
+          return false;
+        }
+      }, "must be a JSON map of Twitch reward UUIDs to allowed game actions"),
     TWITCH_TOKEN_ENCRYPTION_KEY: z
       .string()
       .optional()

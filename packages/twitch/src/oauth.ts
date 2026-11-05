@@ -48,6 +48,7 @@ export interface TwitchOAuthConfig {
   clientSecret: string;
   redirectUri: string;
   guildId: string;
+  scopes?: string[];
 }
 
 export class TwitchOAuthService {
@@ -76,7 +77,7 @@ export class TwitchOAuthService {
       client_id: this.config.clientId,
       redirect_uri: this.config.redirectUri,
       response_type: "code",
-      scope: "user:read:chat",
+      scope: (this.config.scopes ?? ["user:read:chat"]).join(" "),
       state,
     }).toString();
     return url.toString();
@@ -182,8 +183,13 @@ export class TwitchOAuthService {
     if (validation.client_id !== this.config.clientId)
       throw new Error("Twitch access token belongs to a different application");
     const scopes = validation.scopes.length ? validation.scopes : tokenScopes;
-    if (!scopes.includes("user:read:chat"))
-      throw new Error("Twitch authorization is missing user:read:chat");
+    const missingScopes = (this.config.scopes ?? ["user:read:chat"]).filter(
+      (scope) => !scopes.includes(scope),
+    );
+    if (missingScopes.length)
+      throw new Error(
+        `Twitch authorization is missing required scope(s): ${missingScopes.join(", ")}`,
+      );
     const usersResponse = await this.request(
       "https://api.twitch.tv/helix/users",
       {
